@@ -151,6 +151,7 @@ export interface PortfolioSnapshot {
 export interface ResearchReportRow {
   report_id: string
   status: string
+  module?: string
   mode?: string
   created_at?: number
   title?: string

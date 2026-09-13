@@ -9,13 +9,14 @@ from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import time
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Literal, Optional as Opt
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from pydantic import BaseModel
 
 from config.settings import (
     BASE_DIR,
@@ -38,7 +39,8 @@ from core.memory.in_memory_cache import MarketMemoryCache
 from core.memory.duckdb_manager import DuckDBManager
 from subsystems.evolution.performance_audit import PerformanceAuditor
 from subsystems.macro_sentiment.calendar_crawler import EconomicCalendarCrawler
-from subsystems.research.store import list_reports, get_report
+from subsystems.research.store import list_reports, get_report, update_status
+from subsystems.research.run_all import run_all as research_run_all
 from dashboard.system_telemetry import (
     SystemTelemetryCollector,
     get_mt5_portfolio_history,
@@ -462,6 +464,43 @@ async def get_research_report(report_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
+
+
+class ResearchStatusBody(BaseModel):
+    status: Literal["approved", "rejected", "proposed", "needs_review", "backtested"]
+    note: Opt[str] = None
+
+
+class ResearchRunBody(BaseModel):
+    module: Literal["auditor", "news", "strategy", "all"] = "all"
+    force: bool = True
+    rules_only: bool = False
+
+
+@app.post("/api/research/reports/{report_id}/status")
+async def post_research_status(report_id: str, body: ResearchStatusBody):
+    """Human approve/reject only — never writes live trading config."""
+    try:
+        report = await asyncio.to_thread(update_status, report_id, body.status, body.note)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"ok": True, "report_id": report_id, "status": report.get("status"), "auto_apply": False}
+
+
+@app.post("/api/research/run")
+async def post_research_run(body: ResearchRunBody):
+    """Trigger offline research job (proposals only)."""
+    result = await asyncio.to_thread(
+        research_run_all,
+        force=body.force,
+        ignore_gpu=False,
+        halt=False,
+        use_llm=not body.rules_only,
+        modules=[body.module],
+    )
+    return {**result, "auto_apply": False}
 
 
 @app.websocket("/ws")

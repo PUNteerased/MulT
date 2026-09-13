@@ -103,7 +103,8 @@ class DeepSniperOrchestrator:
             asyncio.create_task(self._poi_radar_periodic_loop(), name="POIRadarLoop"),
             asyncio.create_task(self.calendar.run_news_monitor(), name="CalendarMonitor"),
             asyncio.create_task(self.pos_guard.run(), name="PositionGuardLoop"),
-            asyncio.create_task(self._weekend_evolution_loop(), name="EvolutionLoop")
+            asyncio.create_task(self._weekend_evolution_loop(), name="EvolutionLoop"),
+            asyncio.create_task(self._research_agent_loop(), name="ResearchAgentLoop"),
         ]
 
         logger.info("✅ All 7 Subsystems successfully started.")
@@ -212,6 +213,34 @@ class DeepSniperOrchestrator:
                 break
             except Exception as e:
                 logger.error(f"[WeekendEvolution] Loop error: {e}")
+
+    async def _research_agent_loop(self):
+        """Off-hours Research Agent: weekend or HALT — proposals only, no auto-apply."""
+        from subsystems.research.run_all import run_all as research_run_all
+
+        while self.running:
+            try:
+                await asyncio.sleep(3600)
+                weekend = self.evolution.is_weekend()
+                halted = self.system_state == SystemState.HALT_TRADING
+                if not (weekend or halted):
+                    continue
+                logger.info(
+                    f"[ResearchAgent] off-hours run weekend={weekend} halt={halted}"
+                )
+                result = await asyncio.to_thread(
+                    research_run_all,
+                    force=True,
+                    ignore_gpu=False,
+                    halt=halted,
+                    use_llm=True,
+                    modules=["all"],
+                )
+                logger.info(f"[ResearchAgent] result={result}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[ResearchAgent] Loop error: {e}")
 
     async def stop(self):
         """Clean shutdown protocol."""

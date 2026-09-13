@@ -111,6 +111,30 @@ export async function apiGet<T>(backendUrl: string, path: string): Promise<T | n
   }
 }
 
+export async function apiPost<T>(
+  backendUrl: string,
+  path: string,
+  body: unknown,
+): Promise<T | null> {
+  const base = backendUrl || resolveBackendUrl()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  }
+}
+
 export function formatUsd(n: number | null | undefined, digits = 2): string {
   const v = Number(n ?? 0)
   return `$${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`

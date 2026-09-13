@@ -17,8 +17,13 @@ def main(argv=None) -> int:
         action="store_true",
         help="Skip LM Studio even if online",
     )
+    parser.add_argument(
+        "--with-web",
+        action="store_true",
+        help="Optional DuckDuckGo citations (does not change rule results)",
+    )
     args = parser.parse_args(argv)
-    report = run_calculation_audit(use_llm=not args.rules_only)
+    report = run_calculation_audit(use_llm=not args.rules_only, with_web=args.with_web)
     print(json.dumps(
         {
             "report_id": report.get("report_id"),

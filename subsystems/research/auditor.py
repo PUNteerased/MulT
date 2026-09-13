@@ -1,7 +1,7 @@
 """
-Calculation Auditor: always runs rule-based money/ATR checklist.
-Optionally enriches narrative via local LM Studio (qwen/qwen3-8b).
-Outputs status=proposed only — never writes settings.
+Calculation Auditor: rule-based money/ATR checklist is source of truth.
+Optional LM Studio narrative; optional web enrichment for citations only.
+Never writes settings. Status from rules — require_citations=False.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from config.settings import (
     SYMBOLS_CONFIG,
 )
 from core.risk.money import price_diff_to_usd, spread_points_to_usd
+from subsystems.research.agent_loop import check_quality
 from subsystems.research.llm_client import LocalLLMClient
 from subsystems.research.store import save_report
 
@@ -26,7 +27,6 @@ from subsystems.research.store import save_report
 def _rule_checklist() -> List[Dict[str, Any]]:
     checks: List[Dict[str, Any]] = []
 
-    # EURUSD 25 pips = $2.50
     e = price_diff_to_usd("EURUSD", 1.10000, 1.09750, FIXED_LOT_SIZE)
     checks.append(
         {
@@ -36,7 +36,6 @@ def _rule_checklist() -> List[Dict[str, Any]]:
         }
     )
 
-    # USDJPY scales with price
     j = price_diff_to_usd("USDJPY", 150.0, 149.9, FIXED_LOT_SIZE)
     expect_j = 0.10 * 100000 * 0.01 / 150.0
     checks.append(
@@ -47,7 +46,6 @@ def _rule_checklist() -> List[Dict[str, Any]]:
         }
     )
 
-    # XAU / BTC
     x = price_diff_to_usd("XAUUSD", 2400.0, 2399.0, FIXED_LOT_SIZE)
     checks.append(
         {
@@ -65,7 +63,6 @@ def _rule_checklist() -> List[Dict[str, Any]]:
         }
     )
 
-    # Spread budget
     s = spread_points_to_usd("EURUSD", 20, FIXED_LOT_SIZE, mid_price=1.10)
     max_spread = MAX_RISK_DOLLARS_PER_TRADE * MAX_SPREAD_RISK_PCT
     checks.append(
@@ -77,7 +74,6 @@ def _rule_checklist() -> List[Dict[str, Any]]:
         }
     )
 
-    # Symbol ATR params present
     for sym, cfg in SYMBOLS_CONFIG.items():
         checks.append(
             {
@@ -88,7 +84,6 @@ def _rule_checklist() -> List[Dict[str, Any]]:
             }
         )
 
-    # Cap consistency
     checks.append(
         {
             "id": "hard_cap_2_50",
@@ -129,10 +124,14 @@ def _proposals_from_checks(checks: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return proposals
 
 
-def run_calculation_audit(use_llm: bool = True) -> Dict[str, Any]:
+def run_calculation_audit(
+    use_llm: bool = True,
+    with_web: bool = False,
+) -> Dict[str, Any]:
     checks = _rule_checklist()
     proposals = _proposals_from_checks(checks)
     passed = sum(1 for c in checks if c["ok"])
+    all_ok = passed == len(checks)
     mode = "rules_only"
     narrative = (
         f"Rule-based Calculation Auditor: {passed}/{len(checks)} checks passed. "
@@ -146,11 +145,15 @@ def run_calculation_audit(use_llm: bool = True) -> Dict[str, Any]:
         "used": False,
         "error": None,
     }
+    citations: List[Dict[str, Any]] = []
+    tool_trace: List[Dict[str, Any]] = []
 
     if use_llm:
         client = LocalLLMClient()
         if client.is_reachable():
-            prompt_checks = "\n".join(f"- [{ 'OK' if c['ok'] else 'FAIL' }] {c['detail']}" for c in checks)
+            prompt_checks = "\n".join(
+                f"- [{ 'OK' if c['ok'] else 'FAIL' }] {c['detail']}" for c in checks
+            )
             messages = [
                 {
                     "role": "system",
@@ -182,15 +185,53 @@ def run_calculation_audit(use_llm: bool = True) -> Dict[str, Any]:
             llm_meta["error"] = "offline"
             logger.info("[Auditor] LM Studio offline — rule-based checklist only")
 
+    if with_web:
+        # Optional citations only — never override rule results
+        from subsystems.research.agent_loop import run_research_agent
+
+        enrich = run_research_agent(
+            system_prompt=(
+                "You enrich a calculation audit with public references on pip value / ATR sizing. "
+                "Do not invent numbers that contradict the checklist."
+            ),
+            user_prompt="Find references for forex pip value and ATR stop sizing conventions.",
+            seed_queries=[
+                "forex pip value calculation standard lot",
+                "ATR multiple stop loss trading risk",
+            ],
+            require_citations=False,  # auditor status from rules
+            use_llm=False,  # snippets only; rules remain source of truth
+        )
+        citations = enrich.get("citations") or []
+        tool_trace = enrich.get("tool_trace") or []
+        if citations:
+            mode = f"{mode}+web"
+
+    findings = [{"id": c["id"], "ok": c["ok"], "detail": c["detail"]} for c in checks]
+    # Auditor: require_citations=False — empty citations OK; empty findings not OK
+    status = check_quality(
+        citations=citations,
+        findings=findings,
+        require_citations=False,
+        search_failed=False,
+    )
+    if not all_ok:
+        status = "needs_review"
+
     report = {
         "title": "Calculation Auditor Report",
-        "status": "proposed",
+        "module": "auditor",
+        "status": status,
         "mode": mode,
         "summary": narrative[:400],
         "narrative": narrative,
+        "findings": findings,
         "checks": checks,
         "proposals": proposals,
+        "citations": citations,
+        "tool_trace": tool_trace,
         "llm": llm_meta,
+        "llm_meta": llm_meta,
         "created_at": time.time(),
         "auto_apply": False,
     }

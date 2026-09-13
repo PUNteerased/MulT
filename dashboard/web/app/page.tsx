@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useLiveDashboard, type LiveDashboardApi } from '@/hooks/useLiveDashboard'
 import {
+  apiPost,
   cumulativeEquity,
   equityPath,
   formatPrice,
@@ -99,6 +100,7 @@ const nav = [
   { id: 'overview', label: 'Command overview', icon: LayoutDashboard },
   { id: 'hardware', label: 'Computer telemetry', icon: Cpu },
   { id: 'portfolio', label: 'Portfolio & risk', icon: Wallet },
+  { id: 'research', label: 'Research', icon: FileSearch },
   { id: 'mult', label: 'MulT system engine', icon: Network },
 ]
 
@@ -645,20 +647,102 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
           </div>
         )}
       </section>
-      <section className="panel table-panel" style={{ marginTop: 15 }}>
+    </>
+  )
+}
+
+function ResearchPanel({ live }: { live: LiveDashboardApi }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [detail, setDetail] = useState<string>('')
+
+  async function setStatus(reportId: string, status: 'approved' | 'rejected') {
+    if (!live.backendUrl) return
+    setBusy(reportId + status)
+    const res = await apiPost<{ ok?: boolean }>(live.backendUrl, `/api/research/reports/${reportId}/status`, {
+      status,
+      note: `dashboard_${status}`,
+    })
+    setBusy(null)
+    if (res?.ok) {
+      setDetail(`${reportId} → ${status}`)
+      await live.refresh()
+    } else {
+      setDetail(`Failed to set ${status} on ${reportId}`)
+    }
+  }
+
+  async function runModule(module: 'auditor' | 'news' | 'strategy' | 'all') {
+    if (!live.backendUrl) return
+    setBusy(`run-${module}`)
+    const res = await apiPost<{ ok?: boolean; reason?: string }>(live.backendUrl, '/api/research/run', {
+      module,
+      force: true,
+      rules_only: false,
+    })
+    setBusy(null)
+    setDetail(res?.ok ? `Run ${module} ok` : `Run skipped: ${res?.reason || 'error'}`)
+    await live.refresh()
+  }
+
+  return (
+    <>
+      <Header title="Research Agent" clock={live.clock} connected={live.connected} />
+      <section className="mult-summary">
+        <div>
+          <p className="eyebrow">PROPOSALS ONLY · NO AUTO-APPLY</p>
+          <h2>Auditor · News digest · Strategy scanner</h2>
+          <p className="muted">
+            Approve → backtest offline → human merge with{' '}
+            <span className="mono">research_report_id=RES_…</span> in commit.
+          </p>
+        </div>
+        <span className="badge amber">
+          <FileSearch style={{ width: 12, height: 12, displayInline: true }} /> LM Studio + DuckDuckGo
+        </span>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 15 }}>
         <div className="panel-title">
           <div>
-            <p className="eyebrow">RESEARCH · CALCULATION AUDITOR</p>
-            <h2>Proposed only · no auto-apply</h2>
+            <p className="eyebrow">MANUAL RUN</p>
+            <h2>Trigger offline research</h2>
           </div>
-          <span className="badge amber">
-            <FileSearch style={{ width: 12, height: 12, displayInline: true }} /> LM Studio / rules
-          </span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 4px 12px' }}>
+          {(['auditor', 'news', 'strategy', 'all'] as const).map((m) => (
+            <button
+              key={m}
+              className="primary-button"
+              style={{ padding: '8px 12px', fontSize: 12 }}
+              disabled={!!busy || !live.backendUrl}
+              onClick={() => runModule(m)}
+            >
+              {busy === `run-${m}` ? 'Running…' : `Run ${m}`}
+            </button>
+          ))}
+        </div>
+        {detail ? <p className="muted mono" style={{ fontSize: 12, padding: '0 4px 8px' }}>{detail}</p> : null}
+        <p className="muted" style={{ fontSize: 11, padding: '0 4px 8px' }}>
+          Backtest after approve:{' '}
+          <span className="mono">python -m subsystems.validation.run_backtest</span>
+          {' · '}
+          Apply log:{' '}
+          <span className="mono">python -m subsystems.research.log_apply RES_… --files config/settings.py</span>
+        </p>
+      </section>
+
+      <section className="panel table-panel">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">REPORTS</p>
+            <h2>Human gate</h2>
+          </div>
+          <span className="badge amber">auto_apply=false</span>
         </div>
         {!live.researchReports?.length ? (
           <div className="muted" style={{ padding: '18px 10px', fontSize: 12 }}>
-            No auditor reports yet. On the laptop run{' '}
-            <span className="mono text-cyan">python -m subsystems.research.run_auditor</span> when trading GPU is unloaded.
+            No reports yet. Run modules above or{' '}
+            <span className="mono text-cyan">python -m subsystems.research.run_all --force</span>
           </div>
         ) : (
           <div className="table-scroll">
@@ -666,21 +750,39 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
               <thead>
                 <tr>
                   <th>ID</th>
+                  <th>Module</th>
                   <th>Status</th>
-                  <th>Mode</th>
                   <th>Summary</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {live.researchReports.slice(0, 20).map((r) => (
+                {live.researchReports.slice(0, 40).map((r) => (
                   <tr key={r.report_id}>
                     <td className="mono">{r.report_id}</td>
+                    <td className="mono muted">{(r as { module?: string }).module || r.mode || '—'}</td>
                     <td>
                       <span className="badge amber">{r.status || 'proposed'}</span>
                     </td>
-                    <td className="mono muted">{r.mode || '—'}</td>
                     <td style={{ fontSize: 12, color: 'var(--muted, #94a3b8)' }}>
-                      {(r.summary || '').slice(0, 140) || '—'}
+                      {(r.summary || '').slice(0, 120) || '—'}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button
+                        className="primary-button"
+                        style={{ padding: '4px 8px', fontSize: 11, marginRight: 4 }}
+                        disabled={!!busy || r.status === 'approved'}
+                        onClick={() => setStatus(r.report_id, 'approved')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        disabled={!!busy || r.status === 'rejected'}
+                        onClick={() => setStatus(r.report_id, 'rejected')}
+                      >
+                        Reject
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -923,6 +1025,8 @@ export default function Page() {
       <Hardware live={live} />
     ) : active === 'portfolio' ? (
       <Portfolio live={live} />
+    ) : active === 'research' ? (
+      <ResearchPanel live={live} />
     ) : active === 'mult' ? (
       <Mult live={live} />
     ) : (

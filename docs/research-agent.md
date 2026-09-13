@@ -1,49 +1,70 @@
-# Research Agent — Calculation Auditor (free / local only)
+# Research Agent — LM Studio + DuckDuckGo (zero-cost)
 
-Human-gated auditor for money math and ATR config. **Never auto-writes** `settings` or `symbols.yaml`.
+Human-gated research subsystem. **Never auto-writes** `settings` / `symbols.yaml` / model weights.
+
+## Modules
+
+| Module | Entry | Citations required? |
+|--------|--------|---------------------|
+| Calculation Auditor | `python -m subsystems.research.run_auditor` | No — rules are source of truth |
+| News & Macro Digest | `python -m subsystems.research.run_news_digest` | Yes → else `needs_review` |
+| Strategy Literature Scanner | `python -m subsystems.research.run_strategy_scanner` | Yes → else `needs_review` |
+| All (prune + 3 modules) | `python -m subsystems.research.run_all --force` | — |
 
 ## Zero-cost constraint
 
 - No Anthropic / OpenAI cloud billing
-- LLM = **LM Studio** on this laptop only
-- If LM Studio is offline → **rule-based checklist still runs**
+- LLM = **LM Studio** `qwen/qwen3-8b` @ `http://127.0.0.1:1234/v1`
+- Web search = **duckduckgo-search** (retry/backoff; fail → empty report, never recycle stale news)
 
-## LM Studio setup (locked)
+## Quality gate
+
+```text
+check_quality(..., require_citations=True|False)
+```
+
+- News / Strategy: `require_citations=True` — 0 citations or empty findings → `needs_review`
+- Auditor: `require_citations=False` — status from rule checklist (failed rules → `needs_review`)
+
+## Status workflow
+
+`needs_review` | `proposed` → `approved` | `rejected` → (manual backtest) `backtested`
+
+Dashboard: **Research** tab → Approve / Reject.  
+API: `POST /api/research/reports/{id}/status` — store only, no config write.
+
+## Off-hours scheduler
+
+`main.py` `_research_agent_loop` hourly when weekend **or** `HALT_TRADING`.
+
+GPU / enable gate:
+
+1. `RESEARCH_AGENT_ENABLED=0` → skip entirely
+2. `nvidia-smi` util ≥ `RESEARCH_GPU_SKIP_PCT` (default **40**) → skip
+3. No nvidia-smi → skip GPU check only (still honor kill-switch)
+
+## Retention
+
+`prune_reports(max_age_days=90, reject_max_age_days=30)` archives to `data/research_reports/archive/`.
+
+## Human apply audit
+
+After approve + backtest, when you manually copy values into config:
+
+```bash
+python -m subsystems.research.log_apply RES_XXXXXXXX --files config/settings.py --note "atr k1 tweak"
+# or mark backtested:
+python -m subsystems.research.log_apply RES_XXXXXXXX --backtest data/validation_reports/backtest_....json
+```
+
+Git commit message **must** include: `research_report_id=RES_XXXXXXXX`  
+Or a comment in config: `# applied from RES_XXXXXXXX`
+
+## LM Studio setup
 
 | Setting | Value |
 |---------|--------|
 | Model | `qwen/qwen3-8b` |
 | Server | `http://127.0.0.1:1234` |
-| Client base URL | `http://127.0.0.1:1234/v1` |
-| Approx VRAM | ~4.94GB |
 
-Unload Chronos / CNN before running the auditor so the 6GB laptop GPU has headroom.
-
-Env overrides (optional):
-
-```text
-LLM_BASE_URL=http://127.0.0.1:1234/v1
-LLM_MODEL=qwen/qwen3-8b
-LLM_API_KEY=lm-studio
-```
-
-## Run
-
-```bash
-# Weekend / halt only — not on the tick path
-python -m subsystems.research.run_auditor
-
-# Force rules-only (no LLM call)
-python -m subsystems.research.run_auditor --rules-only
-```
-
-Reports land in `data/research_reports/RES_*.json` with `"status": "proposed"`.
-
-## Dashboard
-
-`GET /api/research/reports` lists proposals (status + summary only).  
-No apply / write endpoints — human reviews JSON offline.
-
-## Deferred
-
-News Digest, Strategy Scanner, paid search APIs.
+Unload Chronos / CNN before heavy research runs if VRAM is tight.
