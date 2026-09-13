@@ -37,6 +37,7 @@ docs.zip
 # Generated local reports (optional samples may be committed separately)
 data/validation_reports/
 data/research_reports/
+data/research_chat/
 
 # Secrets
 *.pem

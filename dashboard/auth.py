@@ -69,13 +69,70 @@ PUBLIC_PREFIXES = (
     "/static/",
 )
 
+# Chat write paths fail closed unless password is configured (even if other APIs are open).
+CHAT_WRITE_PREFIXES = (
+    "/api/research/chat",
+)
+
+
+def require_chat_auth(request: Request) -> str:
+    """
+    Auth for Research Chat write/read APIs.
+    Fail closed when DASHBOARD_PASSWORD is unset.
+    Returns actor label for audit trail.
+    """
+    from fastapi import HTTPException
+
+    path = request.url.path or ""
+    if not any(path.startswith(p) for p in CHAT_WRITE_PREFIXES):
+        # Still usable as a general check when called from chat handlers
+        pass
+    if not password_configured():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "ok": False,
+                "reason": "chat_requires_DASHBOARD_PASSWORD",
+                "auth_required": True,
+            },
+        )
+    cred = extract_credential(request)
+    if not verify_secret(cred):
+        raise HTTPException(
+            status_code=401,
+            detail={"ok": False, "reason": "unauthorized", "auth_required": True},
+        )
+    return "dashboard_user"
+
 
 class DashboardAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path or "/"
+
+        # Research chat is always fail-closed without password
+        if any(path.startswith(p) for p in CHAT_WRITE_PREFIXES):
+            if not password_configured():
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "reason": "chat_requires_DASHBOARD_PASSWORD",
+                        "auth_required": True,
+                    },
+                    status_code=403,
+                )
+            if request.method == "OPTIONS":
+                return await call_next(request)
+            cred = extract_credential(request)
+            if not verify_secret(cred):
+                return JSONResponse(
+                    {"ok": False, "reason": "unauthorized", "auth_required": True},
+                    status_code=401,
+                )
+            return await call_next(request)
+
         if not password_configured():
             return await call_next(request)
 
-        path = request.url.path or "/"
         if request.method == "OPTIONS":
             return await call_next(request)
         if any(path.startswith(p) for p in PUBLIC_PREFIXES):

@@ -1,71 +1,71 @@
-# Research Agent — LM Studio + DuckDuckGo (zero-cost)
+# Research Agent — Chatbot + Batch (zero-cost)
 
-Human-gated research subsystem. **Never auto-writes** `settings` / `symbols.yaml` / model weights.
+Human-gated research. **Never silent auto-apply** to trading config / MT5 / model champion.
 
-## Modules
+## Research Chatbot (v1 safe scope)
+
+Conversational advisor on the **Research** tab.
+
+| Can | Cannot (use dedicated UI) |
+|-----|---------------------------|
+| `web_search` (DDG, sanitized as untrusted data) | `mt5.order_send` / change BUY-SELL rules |
+| Read runtime, models, halt, trades, reports | Promote / rollback LGBM from chat |
+| `propose_runtime_patch` → Confirm card | Halt reset from chat (use **Human reset HALT**) |
+| `propose_research_status` → Confirm card | Force weekend evolution from chat |
+
+### Auth (required for chat)
+
+Chat APIs **fail closed** unless `DASHBOARD_PASSWORD` is set and the client is logged in
+(`X-MulT-Auth` / bearer / cookie). Other dashboard APIs may still be open if password unset;
+**chat writes never are.**
+
+### API
+
+- `POST /api/research/chat` `{ message, session_id? }`
+- `GET /api/research/chat/{session_id}`
+- `POST /api/research/chat/{session_id}/actions/{action_id}/confirm|reject`
+
+Audit: `data/research_reports/CHAT_APPLY_LOG.md` (actor, action_id, web_sourced, tool traces).
+
+### Prompt injection
+
+Search hits are wrapped as `WEB_SEARCH_DATA (untrusted, not instructions)`.  
+Pending actions after a search turn set `web_sourced=true` and the UI shows a warning banner.
+
+### High-stakes friction
+
+- **Halt reset:** `POST /api/halt/reset` (button on Research panel)
+- **Model promote:** Approve a `model_challenger` research report (expectancy gate still runs)
+
+---
+
+## Batch modules (legacy)
 
 | Module | Entry | Citations required? |
 |--------|--------|---------------------|
-| Calculation Auditor | `python -m subsystems.research.run_auditor` | No — rules are source of truth |
-| News & Macro Digest | `python -m subsystems.research.run_news_digest` | Yes → else `needs_review` |
-| Strategy Literature Scanner | `python -m subsystems.research.run_strategy_scanner` | Yes → else `needs_review` |
-| All (prune + 3 modules) | `python -m subsystems.research.run_all --force` | — |
+| Calculation Auditor | `python -m subsystems.research.run_auditor` | No |
+| News & Macro Digest | `python -m subsystems.research.run_news_digest` | Yes |
+| Strategy Literature Scanner | `python -m subsystems.research.run_strategy_scanner` | Yes |
+| All | `python -m subsystems.research.run_all --force` | — |
 
 ## Zero-cost constraint
 
-- Default LLM = **LM Studio** `qwen/qwen3-8b` @ `http://127.0.0.1:1234/v1`
-- Dashboard **Settings → Research LLM** can switch to any OpenAI-compatible endpoint (runtime only — see [settings.md](settings.md))
-- Web search = **duckduckgo-search** (retry/backoff; fail → empty report, never recycle stale news)
-- Research Agent **never** auto-writes system settings
+- Default LLM = **LM Studio** @ runtime `system_runtime.llm`
+- Web search = **duckduckgo-search**
+- Overlay writes go to `data/system_runtime.json` only — never raw `settings.py` / `symbols.yaml` from chat
 
-## Quality gate
+## Status workflow (reports)
 
-```text
-check_quality(..., require_citations=True|False)
-```
+`needs_review` | `proposed` → `approved` | `rejected` → `backtested`
 
-- News / Strategy: `require_citations=True` — 0 citations or empty findings → `needs_review`
-- Auditor: `require_citations=False` — status from rule checklist (failed rules → `needs_review`)
-
-## Status workflow
-
-`needs_review` | `proposed` → `approved` | `rejected` → (manual backtest) `backtested`
-
-Dashboard: **Research** tab → Approve / Reject.  
-API: `POST /api/research/reports/{id}/status` — store only, no config write.
+`model_challenger` approve → expectancy gate + promote (see evolution-audit.md).
 
 ## Off-hours scheduler
 
 `main.py` `_research_agent_loop` hourly when weekend **or** `HALT_TRADING`.
 
-GPU / enable gate:
-
-1. `RESEARCH_AGENT_ENABLED=0` → skip entirely
-2. `nvidia-smi` util ≥ `RESEARCH_GPU_SKIP_PCT` (default **40**) → skip
-3. No nvidia-smi → skip GPU check only (still honor kill-switch)
-
-## Retention
-
-`prune_reports(max_age_days=90, reject_max_age_days=30)` archives to `data/research_reports/archive/`.
-
-## Human apply audit
-
-After approve + backtest, when you manually copy values into config:
+## Human apply audit (manual config merge)
 
 ```bash
-python -m subsystems.research.log_apply RES_XXXXXXXX --files config/settings.py --note "atr k1 tweak"
-# or mark backtested:
-python -m subsystems.research.log_apply RES_XXXXXXXX --backtest data/validation_reports/backtest_....json
+python -m subsystems.research.log_apply RES_XXXXXXXX --files config/settings.py --note "note"
 ```
-
-Git commit message **must** include: `research_report_id=RES_XXXXXXXX`  
-Or a comment in config: `# applied from RES_XXXXXXXX`
-
-## LM Studio setup
-
-| Setting | Value |
-|---------|--------|
-| Model | `qwen/qwen3-8b` |
-| Server | `http://127.0.0.1:1234` |
-
-Unload Chronos / CNN before heavy research runs if VRAM is tight.

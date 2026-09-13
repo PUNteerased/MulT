@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 from typing import Dict, Any, List, Set, Literal, Optional as Opt
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -59,6 +59,7 @@ from dashboard.auth import (
     DashboardAuthMiddleware,
     make_token,
     password_configured,
+    require_chat_auth,
     verify_secret,
 )
 
@@ -693,8 +694,63 @@ async def post_research_status(report_id: str, body: ResearchStatusBody):
     return {"ok": True, "report_id": report_id, "status": report.get("status"), "auto_apply": False, "promotion_result": report.get("promotion_result")}
 
 
+class ResearchChatBody(BaseModel):
+    message: str
+    session_id: Opt[str] = None
+
+
 class HaltResetBody(BaseModel):
     note: Opt[str] = "human_reset"
+
+
+@app.post("/api/research/chat")
+async def post_research_chat(request: Request, body: ResearchChatBody):
+    """Conversational research assistant — proposes only; Confirm card applies."""
+    actor = require_chat_auth(request)
+    if not (body.message or "").strip():
+        raise HTTPException(status_code=400, detail="message_required")
+    from subsystems.research.chat_agent import handle_user_message
+
+    result = await asyncio.to_thread(
+        handle_user_message,
+        body.message.strip(),
+        session_id=body.session_id,
+        actor=actor,
+    )
+    return result
+
+
+@app.get("/api/research/chat/{session_id}")
+async def get_research_chat(session_id: str, request: Request):
+    actor = require_chat_auth(request)
+    from subsystems.research import chat_store
+
+    session = chat_store.load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    return {"ok": True, "actor": actor, "session": chat_store.public_session(session)}
+
+
+@app.post("/api/research/chat/{session_id}/actions/{action_id}/confirm")
+async def post_research_chat_confirm(session_id: str, action_id: str, request: Request):
+    actor = require_chat_auth(request)
+    from subsystems.research.chat_apply import confirm_action
+
+    result = await asyncio.to_thread(confirm_action, session_id, action_id, actor=actor)
+    if not result.get("ok") and result.get("reason") in ("session_not_found", "action_not_found"):
+        raise HTTPException(status_code=404, detail=result.get("reason"))
+    return result
+
+
+@app.post("/api/research/chat/{session_id}/actions/{action_id}/reject")
+async def post_research_chat_reject(session_id: str, action_id: str, request: Request):
+    actor = require_chat_auth(request)
+    from subsystems.research.chat_apply import reject_action
+
+    result = await asyncio.to_thread(reject_action, session_id, action_id, actor=actor)
+    if not result.get("ok") and result.get("reason") in ("session_not_found", "action_not_found"):
+        raise HTTPException(status_code=404, detail=result.get("reason"))
+    return result
 
 
 @app.get("/api/halt/status")

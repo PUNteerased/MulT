@@ -966,6 +966,24 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [detail, setDetail] = useState<string>('')
   const [llmLabel, setLlmLabel] = useState('Research LLM')
+  const [legacyOpen, setLegacyOpen] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+  const [messages, setMessages] = useState<
+    Array<{ role: string; content: string; citations?: Array<{ title?: string; url?: string }> }>
+  >([])
+  const [pending, setPending] = useState<
+    Array<{
+      id: string
+      type: string
+      preview: string
+      web_sourced?: boolean
+      status?: string
+    }>
+  >([])
+  const [chatError, setChatError] = useState('')
+  const [haltBusy, setHaltBusy] = useState(false)
 
   useEffect(() => {
     if (!live.backendUrl) return
@@ -1009,16 +1027,89 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
     await live.refresh()
   }
 
+  async function sendChat() {
+    if (!live.backendUrl || !chatInput.trim() || chatBusy) return
+    const text = chatInput.trim()
+    setChatInput('')
+    setChatBusy(true)
+    setChatError('')
+    setMessages((m) => [...m, { role: 'user', content: text }])
+    const res = await apiPost<{
+      ok?: boolean
+      reply?: string
+      citations?: Array<{ title?: string; url?: string }>
+      pending_actions?: Array<{ id: string; type: string; preview: string; web_sourced?: boolean }>
+      session_id?: string
+      reason?: string
+      detail?: { reason?: string }
+    }>(live.backendUrl, '/api/research/chat', {
+      message: text,
+      session_id: sessionId,
+    })
+    setChatBusy(false)
+    if (!res || res.ok === false) {
+      const reason =
+        (typeof res?.detail === 'object' && res.detail?.reason) ||
+        res?.reason ||
+        'Chat failed — set DASHBOARD_PASSWORD and login if needed'
+      setChatError(String(reason))
+      setMessages((m) => [...m, { role: 'assistant', content: `Error: ${reason}` }])
+      return
+    }
+    if (res.session_id) setSessionId(res.session_id)
+    setMessages((m) => [
+      ...m,
+      { role: 'assistant', content: res.reply || '(empty)', citations: res.citations || [] },
+    ])
+    setPending(res.pending_actions || [])
+  }
+
+  async function actOnPending(actionId: string, decision: 'confirm' | 'reject') {
+    if (!live.backendUrl || !sessionId) return
+    setChatBusy(true)
+    const path = `/api/research/chat/${sessionId}/actions/${actionId}/${decision}`
+    const res = await apiPost<{
+      ok?: boolean
+      reason?: string
+      session?: { pending_actions?: typeof pending }
+      result?: { promotion_result?: unknown }
+    }>(live.backendUrl, path, {})
+    setChatBusy(false)
+    if (!res?.ok) {
+      setChatError(res?.reason || `${decision} failed`)
+      return
+    }
+    setPending(res.session?.pending_actions || [])
+    setMessages((m) => [
+      ...m,
+      {
+        role: 'system',
+        content: decision === 'confirm' ? `Confirmed ${actionId}` : `Rejected ${actionId}`,
+      },
+    ])
+    if (decision === 'confirm') await live.refresh()
+  }
+
+  async function resetHalt() {
+    if (!live.backendUrl) return
+    setHaltBusy(true)
+    const res = await apiPost<{ ok?: boolean }>(live.backendUrl, '/api/halt/reset', {
+      note: 'dashboard_research_panel',
+    })
+    setHaltBusy(false)
+    setDetail(res?.ok ? 'Halt reset OK' : 'Halt reset failed')
+  }
+
   return (
     <>
-      <Header title="Research Agent" clock={live.clock} connected={live.connected} />
+      <Header title="Research Chatbot" clock={live.clock} connected={live.connected} />
       <section className="mult-summary">
         <div>
-          <p className="eyebrow">PROPOSALS ONLY · NO AUTO-APPLY</p>
-          <h2>Auditor · News digest · Strategy scanner</h2>
+          <p className="eyebrow">CONFIRM CARD · NO AUTO-APPLY · AUTH REQUIRED</p>
+          <h2>Advisor chat · web search · runtime proposals</h2>
           <p className="muted">
-            Approve → backtest offline → human merge with{' '}
-            <span className="mono">research_report_id=RES_…</span> in commit.
+            Promote / halt reset / evolution stay on dedicated controls — not in chat. High-stakes model
+            promote: Approve a <span className="mono">model_challenger</span> report below.
           </p>
         </div>
         <span className="badge amber">
@@ -1029,31 +1120,160 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
       <section className="panel" style={{ marginBottom: 15 }}>
         <div className="panel-title">
           <div>
-            <p className="eyebrow">MANUAL RUN</p>
-            <h2>Trigger offline research</h2>
+            <p className="eyebrow">CHAT</p>
+            <h2>Research console</h2>
+          </div>
+          <span className="badge cyan mono" style={{ fontSize: 9 }}>
+            {sessionId || 'new session'}
+          </span>
+        </div>
+        <div className="research-chat-log">
+          {!messages.length ? (
+            <p className="muted" style={{ fontSize: 12, padding: 12 }}>
+              Ask about markets, runtime knobs, or model status. Patches appear as Confirm cards.
+            </p>
+          ) : (
+            messages.map((msg, i) => (
+              <div key={i} className={`research-chat-bubble ${msg.role}`}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>
+                  {msg.role.toUpperCase()}
+                </div>
+                <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.45 }}>{msg.content}</div>
+                {msg.citations?.length ? (
+                  <ul className="research-chat-cites">
+                    {msg.citations.map((c, j) => (
+                      <li key={j}>
+                        <a href={c.url} target="_blank" rel="noreferrer">
+                          {c.title || c.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+        {pending.map((a) => (
+          <div key={a.id} className="research-action-card">
+            {a.web_sourced ? (
+              <p className="badge amber" style={{ marginBottom: 8 }}>
+                ข้อเสนอนี้อ้างอิงข้อมูลจากเว็บ — ตรวจก่อน Confirm
+              </p>
+            ) : null}
+            <p className="eyebrow">{a.type}</p>
+            <pre className="mono" style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '6px 0 10px' }}>
+              {a.preview}
+            </pre>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="primary-button"
+                style={{ padding: '6px 12px', fontSize: 12 }}
+                disabled={chatBusy}
+                onClick={() => actOnPending(a.id, 'confirm')}
+              >
+                Confirm
+              </button>
+              <button
+                style={{ padding: '6px 12px', fontSize: 12 }}
+                disabled={chatBusy}
+                onClick={() => actOnPending(a.id, 'reject')}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        ))}
+        <div className="research-chat-compose">
+          <input
+            className="research-chat-input"
+            value={chatInput}
+            disabled={chatBusy || !live.backendUrl}
+            placeholder="Message Research agent…"
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void sendChat()
+              }
+            }}
+          />
+          <button
+            className="primary-button"
+            style={{ padding: '8px 14px', fontSize: 12 }}
+            disabled={chatBusy || !chatInput.trim() || !live.backendUrl}
+            onClick={() => void sendChat()}
+          >
+            {chatBusy ? '…' : 'Send'}
+          </button>
+        </div>
+        {chatError ? (
+          <p className="text-rose mono" style={{ fontSize: 11, marginTop: 8 }}>
+            {chatError}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="panel" style={{ marginBottom: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">HIGH-STAKES (NOT IN CHAT)</p>
+            <h2>Dedicated controls</h2>
           </div>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 4px 12px' }}>
-          {(['auditor', 'news', 'strategy', 'all'] as const).map((m) => (
-            <button
-              key={m}
-              className="primary-button"
-              style={{ padding: '8px 12px', fontSize: 12 }}
-              disabled={!!busy || !live.backendUrl}
-              onClick={() => runModule(m)}
-            >
-              {busy === `run-${m}` ? 'Running…' : `Run ${m}`}
-            </button>
-          ))}
-        </div>
-        {detail ? <p className="muted mono" style={{ fontSize: 12, padding: '0 4px 8px' }}>{detail}</p> : null}
-        <p className="muted" style={{ fontSize: 11, padding: '0 4px 8px' }}>
-          Backtest after approve:{' '}
-          <span className="mono">python -m subsystems.validation.run_backtest</span>
-          {' · '}
-          Apply log:{' '}
-          <span className="mono">python -m subsystems.research.log_apply RES_… --files config/settings.py</span>
+        <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+          Halt reset and model promote keep higher friction outside the chat flow.
         </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            className="primary-button"
+            style={{ padding: '8px 12px', fontSize: 12 }}
+            disabled={haltBusy || !live.backendUrl}
+            onClick={() => void resetHalt()}
+          >
+            {haltBusy ? 'Resetting…' : 'Human reset HALT'}
+          </button>
+          <span className="muted" style={{ fontSize: 11, alignSelf: 'center' }}>
+            Model promote: Approve a model_challenger report in the table below (expectancy gate still applies).
+          </span>
+        </div>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">LEGACY BATCH</p>
+            <h2>Offline research jobs</h2>
+          </div>
+          <button
+            style={{ padding: '4px 10px', fontSize: 11 }}
+            onClick={() => setLegacyOpen((v) => !v)}
+          >
+            {legacyOpen ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {legacyOpen ? (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 4px 12px' }}>
+              {(['auditor', 'news', 'strategy', 'all'] as const).map((m) => (
+                <button
+                  key={m}
+                  className="primary-button"
+                  style={{ padding: '8px 12px', fontSize: 12 }}
+                  disabled={!!busy || !live.backendUrl}
+                  onClick={() => runModule(m)}
+                >
+                  {busy === `run-${m}` ? 'Running…' : `Run ${m}`}
+                </button>
+              ))}
+            </div>
+            {detail ? (
+              <p className="muted mono" style={{ fontSize: 12, padding: '0 4px 8px' }}>
+                {detail}
+              </p>
+            ) : null}
+          </>
+        ) : null}
       </section>
 
       <section className="panel table-panel">
@@ -1066,7 +1286,7 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
         </div>
         {!live.researchReports?.length ? (
           <div className="muted" style={{ padding: '18px 10px', fontSize: 12 }}>
-            No reports yet. Run modules above or{' '}
+            No reports yet. Expand Legacy batch or{' '}
             <span className="mono text-cyan">python -m subsystems.research.run_all --force</span>
           </div>
         ) : (

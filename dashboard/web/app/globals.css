@@ -42,6 +42,61 @@ nav button, .sidebar-link { display: flex; align-items: center; gap: 11px; width
 .auth-card h1 { margin: 0; font-size: 20px; letter-spacing: -.03em; }
 .auth-card input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148,163,184,.35); background: #0b1220; color: #e2e8f0; font-size: 14px; }
 .auth-card .primary-button { width: 100%; margin-top: 4px; }
+
+/* Research chatbot */
+.research-chat-log {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.research-chat-bubble {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(14, 18, 32, 0.65);
+}
+.research-chat-bubble.user {
+  border-color: rgba(103, 232, 249, 0.35);
+  background: rgba(25, 60, 82, 0.35);
+}
+.research-chat-bubble.system {
+  opacity: 0.85;
+  font-size: 12px;
+}
+.research-chat-cites {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 11px;
+}
+.research-chat-cites a { color: #67e8f9; }
+.research-chat-compose {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.research-chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(10, 14, 24, 0.9);
+  color: var(--foreground);
+  font-size: 13px;
+}
+.research-action-card {
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px dashed rgba(251, 191, 36, 0.45);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.06);
+}
 .perf-layout { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 15px; align-items: start; }
 .perf-calendar { min-width: 0; }
 .perf-cal-title { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
