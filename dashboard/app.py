@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Set, Literal, Optional as Opt
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel
@@ -48,6 +48,18 @@ from dashboard.system_telemetry import (
     SystemTelemetryCollector,
     get_mt5_portfolio_history,
     portfolio_from_duckdb,
+)
+from dashboard.health import (
+    build_alerts,
+    build_subsystem_status,
+    derive_system_state,
+    resolve_equity,
+)
+from dashboard.auth import (
+    DashboardAuthMiddleware,
+    make_token,
+    password_configured,
+    verify_secret,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -134,6 +146,8 @@ calendar_crawler = EconomicCalendarCrawler()
 
 # Background tasks reference
 background_tasks = []
+_last_zmq_ts: float = 0.0
+_last_equity: float | None = None
 
 
 async def zmq_bridge_worker():
@@ -155,6 +169,8 @@ async def zmq_bridge_worker():
         logger.warning(f"[Dashboard ZMQ Bridge] Cannot connect immediately ({e}), will retry in loop.")
 
     async def on_zmq_message(topic: str, payload: dict):
+        global _last_zmq_ts
+        _last_zmq_ts = time.time()
         event_type_map = {
             TOPIC_TICK: "tick",
             TOPIC_KILL_ZONE: "kill_zone",
@@ -286,8 +302,9 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-MulT-Auth", "Authorization"],
 )
+app.add_middleware(DashboardAuthMiddleware)
 
 # Mount static folders (API + WS routes registered below take precedence when matched first)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -304,54 +321,114 @@ async def serve_index():
     return JSONResponse({"status": "Dashboard frontend loading..."})
 
 
+@app.get("/robots.txt")
+async def robots_txt():
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@app.get("/api/healthz")
+async def healthz():
+    return {"ok": True, "auth_required": password_configured()}
+
+
+@app.get("/api/auth/status")
+async def auth_status():
+    return {"ok": True, "auth_required": password_configured()}
+
+
+class AuthLoginBody(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: AuthLoginBody):
+    if not password_configured():
+        return {"ok": True, "auth_required": False, "token": ""}
+    if not verify_secret(body.password):
+        raise HTTPException(status_code=401, detail="invalid_password")
+    token = make_token(body.password.strip())
+    resp = JSONResponse({"ok": True, "auth_required": True, "token": token})
+    resp.set_cookie(
+        "mult_auth",
+        token,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 14,
+    )
+    return resp
+
+
 @app.get("/api/status")
 async def get_system_status():
     """System health snapshot and subsystem availability."""
+    global _last_equity
     snapshot = await SystemTelemetryCollector.get_full_snapshot_async()
     red_folder, active_news = calendar_crawler.check_red_folder_status()
-    equity = float((snapshot.get("account") or {}).get("equity") or 50.0)
+    account = snapshot.get("account") or {}
+    mt5_connected = bool(account.get("connected"))
+    equity, equity_stale = resolve_equity(account, _last_equity)
+    if mt5_connected and not equity_stale:
+        _last_equity = equity
+
     from subsystems.risk_guard.guard_50 import RiskGuard50
     from subsystems.risk_guard.runtime_config import load_risk_config
     from subsystems.risk_guard.streak import load_streak_state
 
     streak = await asyncio.to_thread(load_streak_state)
     rcfg = await asyncio.to_thread(load_risk_config)
-    risk_cap = RiskGuard50.compute_max_risk_dollars(
-        equity, float(streak.get("multiplier", 1.0)) if not streak.get("cooldown") else 0.0
+    cooldown = bool(streak.get("cooldown"))
+    streak_mult = float(streak.get("multiplier", 1.0))
+    # Display / armed cap never zeros out solely from cooldown (UI must not show $0.00 as "no risk")
+    armed_mult = streak_mult if streak_mult > 0 else 1.0
+    armed_cap = RiskGuard50.compute_max_risk_dollars(equity, armed_mult)
+    # Effective trading cap (0 during cooldown)
+    risk_cap = 0.0 if cooldown else RiskGuard50.compute_max_risk_dollars(equity, streak_mult)
+    risk_public = rcfg.public_dict(equity, armed_mult)
+
+    zmq_alive = (_last_zmq_ts > 0 and (time.time() - _last_zmq_ts) < 120.0) or mt5_connected
+    subsystems = build_subsystem_status(
+        mt5_connected=mt5_connected,
+        zmq_alive=zmq_alive,
+        cooldown=cooldown,
     )
-    risk_public = rcfg.public_dict(
-        equity,
-        float(streak.get("multiplier", 1.0)) if not streak.get("cooldown") else 0.0,
+    system_state = derive_system_state(
+        red_folder=red_folder,
+        subsystems=subsystems,
+        mt5_connected=mt5_connected,
+    )
+    alerts = build_alerts(
+        subsystems=subsystems,
+        mt5_connected=mt5_connected,
+        red_folder=red_folder,
+        red_title=active_news,
+        cooldown=cooldown,
     )
 
     return {
         "status": "ok",
-        "system_status": "ONLINE",
-        "subsystems": {
-            "data_ingestion": "ONLINE",
-            "macro_sentiment": "ONLINE",
-            "poi_radar": "ONLINE",
-            "m1_sniper": "ONLINE",
-            "meta_labeling": "ONLINE",
-            "risk_guard": "COOLDOWN" if streak.get("cooldown") else "ONLINE",
-            "execution": "ONLINE",
-        },
-        "system_state": "HALT_TRADING" if red_folder else "NORMAL",
+        "system_status": "ONLINE" if mt5_connected else "DEGRADED",
+        "subsystems": subsystems,
+        "system_state": system_state,
+        "alerts": alerts,
+        "alert_count": len(alerts),
         "red_folder": {
             "is_active": red_folder,
             "title": active_news,
         },
         "symbols": TARGET_SYMBOLS,
         "target_symbols": TARGET_SYMBOLS,
-        "account": snapshot["account"],
+        "account": account,
         "hardware": snapshot["hardware"],
         "risk": {
             **risk_public,
             "pct": rcfg.risk_pct,
-            "risk_cap_usd": risk_cap,
+            "risk_cap_usd": armed_cap,  # UI live cap — always meaningful $ from equity
+            "effective_cap_usd": risk_cap,  # 0 when cooldown blocks entries
+            "armed_cap_usd": armed_cap,
             "equity": equity,
+            "equity_stale": equity_stale,
             "streak": streak,
-            "cooldown": bool(streak.get("cooldown")),
+            "cooldown": cooldown,
         },
         "timestamp": time.time(),
     }

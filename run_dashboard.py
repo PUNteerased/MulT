@@ -19,6 +19,26 @@ NGROK_DOMAIN = os.environ.get(
 STATIC_TUNNEL_URL = f"https://{NGROK_DOMAIN}"
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE pairs into os.environ (does not override existing)."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    if not os.path.isfile(env_path):
+        return
+    try:
+        with open(env_path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except OSError:
+        pass
+
+
 def get_local_ip() -> str:
     """Detect LAN IP address of this laptop."""
     try:
@@ -67,6 +87,7 @@ def start_ngrok_tunnel(port: int):
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Deep-Sniper AI Dashboard Server")
     parser.add_argument("--host", default="0.0.0.0", help="Binding host (default 0.0.0.0 for LAN access)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default 8000)")
@@ -74,6 +95,7 @@ def main():
     args = parser.parse_args()
 
     local_ip = get_local_ip()
+    auth_on = bool(os.environ.get("DASHBOARD_PASSWORD", "").strip())
 
     print("=" * 65)
     print("DEEP-SNIPER AI - QUANT WEB DASHBOARD")
@@ -82,6 +104,7 @@ def main():
     print(f"Phone on same Wi-Fi: http://{local_ip}:{args.port}")
     print(f"Vercel UI:          {VERCEL_UI}")
     print(f"Static ngrok URL:   {STATIC_TUNNEL_URL}")
+    print(f"Auth gate:          {'ON (DASHBOARD_PASSWORD set)' if auth_on else 'OFF'}")
     print("=" * 65)
     print("Remote access (after dashboard is up):")
     print(f"  ngrok http {args.port} --url {STATIC_TUNNEL_URL}")

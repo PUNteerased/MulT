@@ -105,6 +105,8 @@ export interface StatusResponse {
   system_status?: string
   subsystems?: Record<string, string>
   system_state: string
+  alerts?: Array<{ level?: string; code?: string; message?: string }>
+  alert_count?: number
   red_folder?: { is_active: boolean; title?: string }
   symbols?: string[]
   account?: AccountSnapshot
@@ -117,7 +119,10 @@ export interface StatusResponse {
     ceiling: number
     fixed_dollars?: number
     risk_cap_usd: number
+    armed_cap_usd?: number
+    effective_cap_usd?: number
     equity: number
+    equity_stale?: boolean
     label?: string
     updated_at?: number
     cooldown?: boolean

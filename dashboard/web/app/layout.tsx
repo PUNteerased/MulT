@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   title: 'MulT Ops Console | Deep-Sniper AI',
   description: 'Operational dashboard for computer telemetry, trading risk, and MulT decision intelligence.',
   generator: 'v0.app',
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
 }
 
 export const viewport: Viewport = {

@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { FlaskConical } from 'lucide-react'
 import type { LiveDashboardApi } from '@/hooks/useLiveDashboard'
-import { apiPost, formatUsd } from '@/lib/backend'
+import { apiPost, formatUsd, displayRiskCap } from '@/lib/backend'
 
 const inputStyle: CSSProperties = {
   width: '100%',
@@ -233,7 +233,7 @@ export function RiskLab({ live }: { live: LiveDashboardApi }) {
             {busy ? 'Saving…' : 'Save Risk Lab'}
           </button>
           <span className="mono" style={{ fontSize: 12 }}>
-            Live cap: {formatUsd(r?.risk_cap_usd)}
+            Live cap: {formatUsd(displayRiskCap({ risk: r as never, equity: live.account?.equity ?? live.portfolio?.current_equity }))}
             {r?.cooldown ? ' · COOLDOWN' : ''}
           </span>
         </div>

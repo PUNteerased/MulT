@@ -26,4 +26,16 @@ Human-editable live config for MulT Ops Console. Stored in `data/system_runtime.
 - First boot migrates legacy `data/risk_runtime.json` into the `risk` section once.
 - Consumers hot-read via `load_settings()` (Risk Guard, LLM client, Meta, Sniper, Calendar, MT5 lot).
 
+## Dashboard auth (before live account)
+
+Set env on the FastAPI host:
+
+```bat
+set DASHBOARD_PASSWORD=your-strong-password
+```
+
+Then restart the dashboard. UI shows an unlock gate; API/WebSocket require `X-MulT-Auth` / `?token=`.
+
+Also served: `robots.txt` Disallow + Next metadata `noindex`.
+
 See also [research-agent.md](research-agent.md).

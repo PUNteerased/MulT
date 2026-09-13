@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'mulT_backend_url'
+const AUTH_KEY = 'mulT_auth_token'
 const VERCEL_HOST_RE = /vercel\.app$/i
 
 export function getStoredBackendUrl(): string {
@@ -13,6 +14,34 @@ export function setStoredBackendUrl(url: string) {
     return
   }
   localStorage.setItem(STORAGE_KEY, url.replace(/\/$/, ''))
+}
+
+export function getAuthToken(): string {
+  if (typeof window === 'undefined') return ''
+  return sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY) || ''
+}
+
+export function setAuthToken(token: string, persist = true) {
+  if (typeof window === 'undefined') return
+  if (!token) {
+    sessionStorage.removeItem(AUTH_KEY)
+    localStorage.removeItem(AUTH_KEY)
+    return
+  }
+  sessionStorage.setItem(AUTH_KEY, token)
+  if (persist) localStorage.setItem(AUTH_KEY, token)
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken()
+  const h: Record<string, string> = {
+    'ngrok-skip-browser-warning': 'true',
+  }
+  if (token) {
+    h['X-MulT-Auth'] = token
+    h.Authorization = `Bearer ${token}`
+  }
+  return h
 }
 
 export function isVercelHost(hostname?: string): boolean {
@@ -90,7 +119,9 @@ export function toWsUrl(backendUrl: string): string {
       : 'http://127.0.0.1:8000')
   const proto = base.startsWith('https') ? 'wss:' : 'ws:'
   const host = base.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  return `${proto}//${host}/ws`
+  const token = getAuthToken()
+  const q = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${proto}//${host}/ws${q}`
 }
 
 export async function apiGet<T>(backendUrl: string, path: string): Promise<T | null> {
@@ -99,10 +130,7 @@ export async function apiGet<T>(backendUrl: string, path: string): Promise<T | n
   try {
     const res = await fetch(`${base}${path}`, {
       cache: 'no-store',
-      headers: {
-        // ngrok free interstitial bypass
-        'ngrok-skip-browser-warning': 'true',
-      },
+      headers: authHeaders(),
     })
     if (!res.ok) return null
     return (await res.json()) as T
@@ -124,7 +152,7 @@ export async function apiPost<T>(
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
+        ...authHeaders(),
       },
       body: JSON.stringify(body),
     })
@@ -142,6 +170,33 @@ export async function apiPost<T>(
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'network_error' } as T
   }
+}
+
+/** Prefer armed/live risk cap; never display $0 when config+equity exist. */
+export function displayRiskCap(opts: {
+  risk?: {
+    risk_cap_usd?: number
+    armed_cap_usd?: number
+    pct?: number
+    risk_pct?: number
+    floor?: number
+    ceiling?: number
+    mode?: string
+    fixed_dollars?: number
+    equity?: number
+  } | null
+  equity?: number
+}): number {
+  const r = opts.risk
+  const armed = r?.armed_cap_usd ?? r?.risk_cap_usd
+  if (armed != null && Number(armed) > 0) return Number(armed)
+  const eq = Number(r?.equity ?? opts.equity ?? 50)
+  if (r?.mode === 'fixed') return Number(r.fixed_dollars ?? 2.5)
+  const pct = Number(r?.risk_pct ?? r?.pct ?? 0.005)
+  const floor = Number(r?.floor ?? 1)
+  const ceiling = Number(r?.ceiling ?? 5)
+  const raw = eq * pct
+  return Math.min(ceiling, Math.max(floor, raw))
 }
 
 export function formatUsd(n: number | null | undefined, digits = 2): string {

@@ -30,6 +30,7 @@ import {
   apiGet,
   apiPost,
   cumulativeEquity,
+  displayRiskCap,
   equityPath,
   formatPrice,
   formatUsd,
@@ -39,6 +40,7 @@ import type { PositionLive, Tone } from '@/lib/types'
 import { RiskLab } from '@/components/RiskLab'
 import { SettingsPanel } from '@/components/SettingsPanel'
 import { PerformanceCalendar, tradeDayKey, tradeInRange, type CalendarTrade, type DateRange } from '@/components/PerformanceCalendar'
+import { AuthGate } from '@/components/AuthGate'
 
 function VercelTunnelBanner({
   connected,
@@ -173,7 +175,23 @@ function Header({
   )
 }
 
-function EquityChart({ values, stroke = '#67e8f9' }: { values: number[]; stroke?: string }) {
+function EquityChart({
+  values,
+  stroke = '#67e8f9',
+  empty,
+}: {
+  values: number[]
+  stroke?: string
+  empty?: boolean
+}) {
+  if (empty) {
+    return (
+      <div className="chart-empty">
+        <p>ยังไม่มีประวัติ equity ที่มีความหมาย</p>
+        <small className="muted">กราฟจะเริ่มหลังเทรดไม้แรก (หรือเมื่อ equity ขยับจาก baseline)</small>
+      </div>
+    )
+  }
   const line = equityPath(values, 720, 260)
   const area = `${line} V260 H0Z`
   const hi = Math.max(...values, 50)
@@ -204,6 +222,14 @@ function EquityChart({ values, stroke = '#67e8f9' }: { values: number[]; stroke?
       </div>
     </>
   )
+}
+
+function meaningfulEquityCurve(values: number[], tradeCount: number): boolean {
+  if (!values.length) return false
+  if (tradeCount < 1 && values.length <= 3) return false
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  return max - min >= 0.5
 }
 
 function PositionTable({ positions }: { positions: PositionLive[] }) {
@@ -266,31 +292,50 @@ function PositionTable({ positions }: { positions: PositionLive[] }) {
 
 function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskLab?: () => void }) {
   const pf = live.portfolio
-  const equity = pf?.current_equity ?? live.account?.equity ?? 50
+  const equity = pf?.current_equity ?? live.account?.equity ?? live.status?.risk?.equity ?? 50
   const balance = pf?.current_balance ?? live.account?.balance ?? 50
   const initial = pf?.initial_balance ?? 50
   const pnl = pf?.net_pnl ?? equity - initial
   const pnlPct = pf?.net_pnl_pct ?? (pnl / (initial + 1e-9)) * 100
   const positions = live.account?.active_positions || []
+  const tradeCount = live.trades.length || pf?.closed_trades?.length || 0
   const curve = useMemo(
     () => (pf?.equity_curve?.length ? pf.equity_curve : cumulativeEquity(live.trades, initial)),
     [pf, live.trades, initial],
   )
-  const state = live.status?.system_state || 'NORMAL'
+  const showCurve = meaningfulEquityCurve(curve, tradeCount)
+  const riskCap = displayRiskCap({ risk: live.status?.risk, equity })
+
+  const rawState = live.status?.system_state
+  const state = !live.connected
+    ? 'OFFLINE'
+    : rawState && rawState !== 'NORMAL'
+      ? rawState
+      : live.account?.connected === false
+        ? 'DEGRADED'
+        : rawState || 'NORMAL'
   const subsystems = live.status?.subsystems || {
-    data_ingestion: live.connected ? 'ONLINE' : 'OFFLINE',
-    poi_radar: live.connected ? 'ONLINE' : 'OFFLINE',
-    risk_guard: 'ARMED',
-    execution: live.connected ? 'ONLINE' : 'OFFLINE',
+    data_ingestion: live.connected && live.account?.connected ? 'ONLINE' : 'OFFLINE',
+    poi_radar: live.connected && live.account?.connected ? 'ONLINE' : 'OFFLINE',
+    risk_guard: live.status?.risk?.cooldown ? 'COOLDOWN' : 'ONLINE',
+    execution: live.account?.connected ? 'ONLINE' : 'OFFLINE',
   }
 
   const cards = [
     {
       label: 'System state',
       value: state,
-      note: live.connected ? 'Gateway linked' : 'Waiting for tunnel',
+      note: !live.connected
+        ? 'Backend / tunnel offline'
+        : state === 'DEGRADED'
+          ? 'Core services degraded'
+          : state === 'OFFLINE'
+            ? 'MT5 / pipeline offline'
+            : live.connected
+              ? 'Gateway linked'
+              : 'Waiting for tunnel',
       icon: Server,
-      tone: state === 'HALT_TRADING' ? 'rose' : 'cyan',
+      tone: state === 'HALT_TRADING' || state === 'OFFLINE' ? 'rose' : state === 'DEGRADED' ? 'amber' : 'cyan',
     },
     {
       label: 'Portfolio equity',
@@ -309,9 +354,9 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
     {
       label: 'Risk guard',
       value: live.status?.risk?.cooldown ? 'COOLDOWN' : 'ARMED',
-      note: live.status?.risk
-        ? `Max ${formatUsd(live.status.risk.risk_cap_usd)} · ${(live.status.risk.pct * 100).toFixed(2)}% eq · 0.01 lot`
-        : 'Max 0.5% eq · 0.01 lot',
+      note: live.status?.risk?.cooldown
+        ? `Armed ${formatUsd(riskCap)} · entries blocked`
+        : `Max ${formatUsd(riskCap)} · ${(((live.status?.risk?.risk_pct ?? live.status?.risk?.pct ?? 0.005) * 100)).toFixed(2)}% eq`,
       icon: ShieldCheck,
       tone: live.status?.risk?.cooldown ? 'rose' : 'amber',
     },
@@ -353,7 +398,7 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
               {pnlPct.toFixed(2)}%
             </span>
           </div>
-          <EquityChart values={curve} stroke={pnl >= 0 ? '#4ade80' : '#fb7185'} />
+          <EquityChart values={curve} stroke={pnl >= 0 ? '#4ade80' : '#fb7185'} empty={!showCurve} />
         </section>
         <section className="panel">
           <div className="panel-title">
@@ -369,7 +414,7 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
               ['MulT orchestrator', live.connected ? 'Streaming' : 'Disconnected', live.connected ? 'cyan' : 'rose', Zap],
               ['DuckDB journal', `${live.trades.length} trades`, 'green', Database],
               ['ZeroMQ bridge', live.connected ? 'Subscribed' : 'Idle', live.connected ? 'violet' : 'amber', Network],
-              ['Risk guard', live.status?.risk?.cooldown ? 'CooldownOLDOWN' : (live.status?.risk ? `Armed ${formatUsd(live.status.risk.risk_cap_usd)}` : 'Armed 0.5% EQ'), live.status?.risk?.cooldown ? 'rose' : 'amber', LockKeyhole],
+              ['Risk guard', live.status?.risk?.cooldown ? 'COOLDOWN' : `Armed ${formatUsd(riskCap)}`, live.status?.risk?.cooldown ? 'rose' : 'amber', LockKeyhole],
             ].map(([name, status, tone, Icon]) => (
               <div className="service-row" key={name as string}>
                 <Icon />
@@ -402,7 +447,7 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
         <div className="detail-grid">
           <div>
             <span>Live cap</span>
-            <strong>{formatUsd(live.status?.risk?.risk_cap_usd)}</strong>
+            <strong>{formatUsd(riskCap)}</strong>
           </div>
           <div>
             <span>Mode</span>
@@ -678,16 +723,19 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
 
 function Portfolio({ live }: { live: LiveDashboardApi }) {
   const pf = live.portfolio
-  const equity = pf?.current_equity ?? live.account?.equity ?? 50
+  const equity = pf?.current_equity ?? live.account?.equity ?? live.status?.risk?.equity ?? 50
   const balance = pf?.current_balance ?? live.account?.balance ?? 50
   const initial = pf?.initial_balance ?? 50
   const pnl = pf?.net_pnl ?? equity - initial
   const pnlPct = pf?.net_pnl_pct ?? (pnl / (initial + 1e-9)) * 100
   const positions = live.account?.active_positions || []
+  const tradeCount = live.trades.length || pf?.closed_trades?.length || 0
   const curve = useMemo(
     () => (pf?.equity_curve?.length ? pf.equity_curve : cumulativeEquity(live.trades, initial)),
     [pf, live.trades, initial],
   )
+  const showCurve = meaningfulEquityCurve(curve, tradeCount)
+  const riskCap = displayRiskCap({ risk: live.status?.risk, equity })
   const wr = pf?.analytics?.win_rate ?? live.analytics?.win_rate ?? live.analytics?.win_rate_pct ?? 0
   const pfFactor = pf?.analytics?.profit_factor ?? live.analytics?.profit_factor ?? 0
   const floating = positions.reduce((s, p) => s + Number(p.profit || 0), 0)
@@ -718,8 +766,8 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
               {live.status?.risk?.cooldown
                 ? 'COOLDOWN'
                 : live.status?.risk
-                  ? `ARMED · ${formatUsd(live.status.risk.risk_cap_usd)} (${live.status.risk.label || `${((live.status.risk.pct || 0) * 100).toFixed(2)}% EQ`})`
-                  : 'ARMED · 0.5% EQ'}
+                  ? `ARMED · ${formatUsd(riskCap)} (${live.status.risk.label || `${((live.status.risk.pct || 0) * 100).toFixed(2)}% EQ`})`
+                  : `ARMED · ${formatUsd(riskCap)}`}
             </strong>
           </div>
         </div>
@@ -735,7 +783,7 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
               WR {Number(wr).toFixed(1)}% · PF {Number(pfFactor).toFixed(2)} · {pf?.timezone || 'Asia/Bangkok'}
             </span>
           </div>
-          <EquityChart values={curve} stroke="#4ade80" />
+          <EquityChart values={curve} stroke="#4ade80" empty={!showCurve} />
         </section>
         <section className="panel">
           <div className="panel-title">
@@ -748,7 +796,7 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
           <div className="risk-list">
             {[
               ['Initial balance', formatUsd(initial), pf?.source || 'mt5', 'cyan'],
-              ['Max risk / trade', live.status?.risk ? `${formatUsd(live.status.risk.risk_cap_usd)} · ${live.status.risk.label || '—'}` : '0.5% of equity', live.status?.risk?.mode === 'fixed' ? 'Fixed dollar mode' : `Floor ${formatUsd(live.status?.risk?.floor ?? 1)} · ceiling ${formatUsd(live.status?.risk?.ceiling ?? 5)}`, 'green'],
+              ['Max risk / trade', `${formatUsd(riskCap)} · ${live.status?.risk?.label || '—'}`, live.status?.risk?.mode === 'fixed' ? 'Fixed dollar mode' : `Floor ${formatUsd(live.status?.risk?.floor ?? 1)} · ceiling ${formatUsd(live.status?.risk?.ceiling ?? 5)}`, 'green'],
               ['Max position size', '0.01 lots', 'Broker minimum', 'cyan'],
               ['Balance', formatUsd(balance), live.account?.currency || 'USD', 'green'],
               ['Floating P/L', formatUsd(floating), `${positions.length} open`, floating >= 0 ? 'green' : 'rose'],
@@ -1237,6 +1285,11 @@ export default function Page() {
     )
 
   const zoneCount = Object.values(live.killZones).reduce((n, z) => n + (z.zones?.length || 0), 0)
+  const alertCount =
+    live.status?.alert_count ??
+    live.status?.alerts?.length ??
+    (live.status?.red_folder?.is_active ? 1 : 0) +
+      (!live.connected || live.account?.connected === false ? 1 : 0)
   const backendHost = (() => {
     try {
       if (!live.backendUrl) return 'no backend'
@@ -1250,6 +1303,7 @@ export default function Page() {
   })()
 
   return (
+    <AuthGate>
     <main className="app-shell">
       <VercelTunnelBanner
         connected={live.connected}
@@ -1282,7 +1336,9 @@ export default function Page() {
                 <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
                   <Icon />
                   <span>{label}</span>
-                  {id === 'mult' && <b>{zoneCount || 4}</b>}
+                  {id === 'mult' && zoneCount > 0 ? (
+                    <b title={`${zoneCount} active kill zone${zoneCount === 1 ? '' : 's'}`}>{zoneCount}</b>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -1295,13 +1351,13 @@ export default function Page() {
             </span>
             <small>{backendHost}</small>
           </div>
-          <button className="sidebar-link" type="button" onClick={() => setActive('settings')}>
-            <AlertTriangle /> System alerts <b>{live.status?.red_folder?.is_active ? 1 : 0}</b>
+          <button className="sidebar-link" type="button" onClick={() => setActive('settings')} title={(live.status?.alerts || []).map((a) => a.message).join(' · ') || 'No alerts'}>
+            <AlertTriangle /> System alerts <b>{alertCount}</b>
           </button>
         </div>
       </aside>
       <div className="main-content">
-        <div className="mobile-nav">
+        <div className="mobile-nav" aria-label="Mobile navigation">
           {navFlat.map(({ id, label, icon: Icon }) => (
             <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
               <Icon />
@@ -1312,5 +1368,6 @@ export default function Page() {
         {view}
       </div>
     </main>
+    </AuthGate>
   )
 }
