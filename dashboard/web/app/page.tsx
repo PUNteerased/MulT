@@ -133,8 +133,6 @@ const navGroups = [
   },
 ]
 
-const navFlat = navGroups.flatMap((g) => g.items)
-
 
 function Sparkline({ tone = 'cyan' }: { tone?: string }) {
   const stroke = tone === 'green' ? '#4ade80' : tone === 'rose' ? '#fb7185' : '#67e8f9'
@@ -1357,14 +1355,6 @@ export default function Page() {
         </div>
       </aside>
       <div className="main-content">
-        <div className="mobile-nav" aria-label="Mobile navigation">
-          {navFlat.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
-              <Icon />
-              <span>{label.split(' ')[0]}</span>
-            </button>
-          ))}
-        </div>
         {view}
       </div>
     </main>
