@@ -764,7 +764,7 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
                     <td>
                       <span className="badge amber">{r.status || 'proposed'}</span>
                     </td>
-                    <td style={{ fontSize: 12, color: 'var(--muted, #94a3b8)' }}>
+                    <td style={{ fontSize: 12, color: '#e2e8f0' }}>
                       {(r.summary || '').slice(0, 120) || '—'}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>

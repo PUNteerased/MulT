@@ -128,10 +128,19 @@ export async function apiPost<T>(
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const j = await res.json()
+        detail = typeof j?.detail === 'string' ? j.detail : JSON.stringify(j?.detail || j)
+      } catch {
+        detail = await res.text().catch(() => '')
+      }
+      return { ok: false, reason: `${res.status} ${detail || res.statusText}` } as T
+    }
     return (await res.json()) as T
-  } catch {
-    return null
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : 'network_error' } as T
   }
 }
 

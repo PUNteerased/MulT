@@ -527,7 +527,8 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/{asset_path:path}")
 async def serve_web_asset(asset_path: str):
     """Serve Next export public assets (icons, placeholders) from out/."""
-    if not asset_path or asset_path.startswith(("api/", "ws", "static/")):
+    # Never let the SPA catch-all claim /api/* (POST would otherwise become 405).
+    if not asset_path or asset_path.startswith(("api/", "ws", "static/", "docs")):
         raise HTTPException(status_code=404, detail="Not found")
     candidate = WEB_OUT_DIR / asset_path
     if candidate.is_file():
@@ -536,3 +537,9 @@ async def serve_web_asset(asset_path: str):
     if legacy.is_file():
         return FileResponse(legacy)
     raise HTTPException(status_code=404, detail="Not found")
+
+
+# Explicit unknown-API fallback so missing routes are 404, not catch-all 405.
+@app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def unknown_api(full_path: str):
+    raise HTTPException(status_code=404, detail=f"Unknown API path: /api/{full_path}")
