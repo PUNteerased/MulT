@@ -38,7 +38,7 @@ import {
 import type { PositionLive, Tone } from '@/lib/types'
 import { RiskLab } from '@/components/RiskLab'
 import { SettingsPanel } from '@/components/SettingsPanel'
-import { PerformanceCalendar, tradeDayKey, type CalendarTrade } from '@/components/PerformanceCalendar'
+import { PerformanceCalendar, tradeDayKey, tradeInRange, type CalendarTrade, type DateRange } from '@/components/PerformanceCalendar'
 
 function VercelTunnelBanner({
   connected,
@@ -571,11 +571,20 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
   const closed = (live.portfolio?.closed_trades || live.trades || []) as CalendarTrade[]
   const open = live.account?.active_positions || []
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [selectedRange, setSelectedRange] = useState<DateRange | null>(null)
   const initial = live.portfolio?.initial_balance ?? 50
 
   const filtered = selectedDay
     ? closed.filter((t) => tradeDayKey(t) === selectedDay)
-    : closed
+    : selectedRange
+      ? closed.filter((t) => tradeInRange(t, selectedRange))
+      : closed
+
+  const journalTitle = selectedDay
+    ? `Trades on ${selectedDay}`
+    : selectedRange
+      ? `${selectedRange.label} · ${selectedRange.start} → ${selectedRange.end}`
+      : 'Closed / logged trades'
 
   return (
     <>
@@ -597,6 +606,8 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
           initialBalance={initial}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
+          selectedRange={selectedRange}
+          onSelectRange={setSelectedRange}
         />
       </div>
 
@@ -604,13 +615,19 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
         <div className="panel-title">
           <div>
             <p className="eyebrow">JOURNAL</p>
-            <h2>
-              {selectedDay ? `Trades on ${selectedDay}` : 'Closed / logged trades'}
-            </h2>
+            <h2>{journalTitle}</h2>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {selectedDay ? (
-              <button type="button" className="subtle-button" style={{ padding: '6px 10px' }} onClick={() => setSelectedDay(null)}>
+            {selectedDay || selectedRange ? (
+              <button
+                type="button"
+                className="subtle-button"
+                style={{ padding: '6px 10px' }}
+                onClick={() => {
+                  setSelectedDay(null)
+                  setSelectedRange(null)
+                }}
+              >
                 Clear filter
               </button>
             ) : null}
@@ -631,7 +648,15 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
             <tbody>
               {(filtered.length
                 ? filtered.slice(0, 80)
-                : [{ time: '—', symbol: '—', direction: '—', pnl: 0, comment: selectedDay ? 'No trades this day' : 'No trades yet' }]
+                : [
+                    {
+                      time: '—',
+                      symbol: '—',
+                      direction: '—',
+                      pnl: 0,
+                      comment: selectedDay || selectedRange ? 'No trades in this period' : 'No trades yet',
+                    },
+                  ]
               ).map((t, i) => (
                 <tr key={String((t as CalendarTrade & { ticket?: string; id?: string }).id || (t as { ticket?: string }).ticket || i)}>
                   <td className="mono">{String(t.time || t.closed_at || t.exit_time || '—')}</td>
