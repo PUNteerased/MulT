@@ -1,17 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "npm run build",
+  "installCommand": "npm install --prefix dashboard/web",
+  "buildCommand": "npm run build --prefix dashboard/web && node scripts/copy-web-out.mjs",
   "outputDirectory": "out",
-  "installCommand": "npm install",
   "cleanUrls": true,
-  "trailingSlash": false,
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
-      ]
-    }
-  ]
+  "trailingSlash": false
 }

@@ -22,7 +22,6 @@ dashboard/web/node_modules/
 dashboard/web/.next/
 dashboard/web/.vercel/
 **/.vercel/
-/out/
 
 # OS / IDE
 .DS_Store
