@@ -113,15 +113,18 @@ npm run dev
 | รายการ | ค่า |
 |--------|-----|
 | Repo | https://github.com/PUNteerased/MulT |
-| Root Directory บน Vercel | `dashboard/vercel` |
-| Build | static (`output: 'export'` จาก Next.js) — ไม่ต้องมี Python บน Vercel |
+| **Root Directory (แนะนำ)** | `dashboard/web` |
+| Framework | Next.js (`output: 'export'`) |
+| Build Command | `npm run build` |
+| Output Directory | `out` |
+| Fallback static folder | `dashboard/vercel` (sync จาก `out/`) |
 
-### ใช้งานจากมือถือคนละเน็ต
-1. `python main.py`  
-2. `python run_dashboard.py --tunnel` (หรือ ngrok / localtunnel ชี้พอร์ต 8000)  
-3. เปิดเว็บ Vercel → วาง Tunnel URL ใน Backend bridge  
+### แก้ 404: NOT_FOUND บนโดเมน production
+1. Vercel → Project **mult-trade** → **Settings → General → Root Directory** → ตั้งเป็น `dashboard/web` แล้ว Save  
+2. **Settings → Domains**: ใช้โดเมนโปรเจกต์ เช่น `mult-trade.vercel.app` — ถ้า `temporary-brisk-marsh-*.vercel.app` เป็นโดเมนชั่วคราวเก่าที่ชี้ deploy ว่าง ให้ลบหรือเปลี่ยน Production assignment  
+3. **Deployments → … → Redeploy** (หรือ push `main` ใหม่)
 
-หน้า Vercel อย่างเดียว **ไม่มี** ข้อมูล MT5 จนกว่าจะต่อ tunnel
+หน้า Vercel เป็น UI อย่างเดียว — ต้องต่อ Backend tunnel ถึงจะมีข้อมูล MT5
 
 ## ทดสอบ
 `tests/test_dashboard.py` ตรวจ telemetry, REST รวม `/api/portfolio` (`timezone == Asia/Bangkok`), และ WebSocket snapshot
