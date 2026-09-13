@@ -1,5 +1,7 @@
 # Execution — ส่งออเดอร์และ Trailing
 
+> อัปเดต: 13 กันยายน 2026
+
 ## วัตถุประสงค์
 ส่งคำสั่งเข้า MT5 แบบไม่บล็อก event loop และจัดการไม้เดียวให้กลายเป็น **ความเสี่ยงศูนย์** เมื่อถึงเป้า
 
@@ -17,6 +19,14 @@
 - `subsystems/execution/mt5_router.py` — place / modify / close ผ่าน `asyncio.to_thread`
 - `subsystems/execution/position_guard.py` — เฝ้าโพซิชัน + equity
 
-## Events
-- `TOPIC_EXECUTION` สถานะ `PLACED`, `MODIFIED_BE`, `CLOSED`  
-- Dashboard เล่นเสียง / toast ตามสถานะ
+## Events (ZeroMQ)
+Topic จริง: **`exec.trade`** (`TOPIC_EXECUTION`)
+
+สถานะที่ dashboard รับได้ เช่น:
+- `PLACED` — เปิดไม้  
+- `MODIFIED_BE` — ล็อก BE+2  
+- `CLOSED` — ปิดไม้ (PnL)
+
+## ความสัมพันธ์กับ Portfolio UI
+ประวัติปิดไม้บนแท็บ Portfolio มาจาก **MT5 deal history** (`/api/portfolio`)  
+ไม่พึ่งเฉพาะ DuckDB `trade_logs` ของบอท — จึงเห็นไม้ที่เทรดในเทอร์มินัลด้วย (รวมไม้ที่ไม่ได้มาจากบอท)
