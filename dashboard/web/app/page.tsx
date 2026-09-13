@@ -1185,11 +1185,12 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
           </div>
         ))}
         <div className="research-chat-compose">
-          <input
+          <textarea
             className="research-chat-input"
             value={chatInput}
             disabled={chatBusy || !live.backendUrl}
-            placeholder="Message Research agent…"
+            placeholder="พิมพ์ข้อความ… (Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่) — ใช้ Research LLM / LM Studio จาก Settings"
+            rows={4}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -1198,18 +1199,25 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
               }
             }}
           />
-          <button
-            className="primary-button"
-            style={{ padding: '8px 14px', fontSize: 12 }}
-            disabled={chatBusy || !chatInput.trim() || !live.backendUrl}
-            onClick={() => void sendChat()}
-          >
-            {chatBusy ? '…' : 'Send'}
-          </button>
+          <div className="research-chat-compose-bar">
+            <span className="muted mono" style={{ fontSize: 11 }}>
+              LLM: {llmLabel} · same as Settings → Research LLM / LM Studio
+            </span>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={chatBusy || !chatInput.trim() || !live.backendUrl}
+              onClick={() => void sendChat()}
+            >
+              {chatBusy ? 'Thinking…' : 'Send'}
+            </button>
+          </div>
         </div>
         {chatError ? (
           <p className="text-rose mono" style={{ fontSize: 11, marginTop: 8 }}>
-            {chatError}
+            {chatError.includes('404')
+              ? `${chatError} — รีสตาร์ท dashboard backend (run_dashboard) แล้วรีเฟรชหน้า`
+              : chatError}
           </p>
         ) : null}
       </section>

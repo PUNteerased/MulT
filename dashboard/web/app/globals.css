@@ -76,18 +76,43 @@ nav button, .sidebar-link { display: flex; align-items: center; gap: 11px; width
 .research-chat-cites a { color: #67e8f9; }
 .research-chat-compose {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  width: 100%;
 }
-.research-chat-input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: rgba(10, 14, 24, 0.9);
-  color: var(--foreground);
+.research-chat-input,
+textarea.research-chat-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100%;
+  min-height: 96px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0b1220;
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: vertical;
+  font-family: inherit;
+}
+.research-chat-input:focus {
+  outline: 1px solid rgba(103, 232, 249, 0.55);
+  border-color: rgba(103, 232, 249, 0.55);
+}
+.research-chat-compose-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.research-chat-compose-bar .primary-button {
+  min-width: 96px;
+  padding: 10px 18px;
   font-size: 13px;
 }
 .research-action-card {
