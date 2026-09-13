@@ -1,0 +1,9 @@
+{
+  "name": "mult-ops-console",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MulT Ops Console — Vercel entry (builds dashboard/web static export)",
+  "scripts": {
+    "build": "npm --prefix dashboard/web install && npm --prefix dashboard/web run build && node scripts/copy-web-out.mjs"
+  }
+}

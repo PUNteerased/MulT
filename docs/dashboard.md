@@ -110,21 +110,22 @@ npm run dev
 
 ## Vercel / GitHub
 
-| รายการ | ค่า |
-|--------|-----|
+| รายการ | ค่าที่แนะนำ (ตรงกับ Settings ปัจจุบัน) |
+|--------|------------------------------------------|
 | Repo | https://github.com/PUNteerased/MulT |
-| **Root Directory (แนะนำ)** | `dashboard/web` |
-| Framework | Next.js (`output: 'export'`) |
+| **Root Directory** | `./` (repo root) |
+| Framework Preset | Other |
 | Build Command | `npm run build` |
 | Output Directory | `out` |
-| Fallback static folder | `dashboard/vercel` (sync จาก `out/`) |
 
-### แก้ 404: NOT_FOUND บนโดเมน production
-1. Vercel → Project **mult-trade** → **Settings → General → Root Directory** → ตั้งเป็น `dashboard/web` แล้ว Save  
-2. **Settings → Domains**: ใช้โดเมนโปรเจกต์ เช่น `mult-trade.vercel.app` — ถ้า `temporary-brisk-marsh-*.vercel.app` เป็นโดเมนชั่วคราวเก่าที่ชี้ deploy ว่าง ให้ลบหรือเปลี่ยน Production assignment  
-3. **Deployments → … → Redeploy** (หรือ push `main` ใหม่)
+Root `package.json` จะ build `dashboard/web` แล้ว copy ไป `/out` ให้ Vercel
 
-หน้า Vercel เป็น UI อย่างเดียว — ต้องต่อ Backend tunnel ถึงจะมีข้อมูล MT5
+### โดเมนที่ผิด
+- `temporary-brisk-marsh-*.vercel.app` — โดเมนชั่วคราวเก่า มัก 404  
+- `mult-trade.vercel.app` — ตอนนี้ชี้แอป **Hyperliquid Trade Test** คนละโปรเจกต์  
+
+หลัง redeploy ให้เปิด URL ของ **Deployment** ล่าสุดในหน้า Deployments (ปุ่ม Visit) ไม่ใช่โดเมน marsh เก่า  
+หรือไป **Settings → Domains** เพิ่มโดเมนใหม่ เช่น `mult-ops.vercel.app` แล้วชี้ Production ไป deployment ล่าสุด
 
 ## ทดสอบ
 `tests/test_dashboard.py` ตรวจ telemetry, REST รวม `/api/portfolio` (`timezone == Asia/Bangkok`), และ WebSocket snapshot
