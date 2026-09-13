@@ -19,6 +19,17 @@ from core.bus.zmq_bus import ZMQPublisher
 from core.memory.duckdb_manager import DuckDBManager
 from core.risk.money import pnl_to_usd, trailing_offset_price
 
+MAGIC_NUMBER = 20250913
+
+
+def _runtime_lot() -> float:
+    try:
+        from subsystems.config.system_runtime import load_settings
+
+        return float(load_settings().execution.fixed_lot_size)
+    except Exception:
+        return float(FIXED_LOT_SIZE)
+
 
 class MT5OrderRouter:
     """Non-blocking MT5 order execution and trailing stop manager."""
@@ -103,7 +114,7 @@ class MT5OrderRouter:
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": ticket.symbol,
-                "volume": FIXED_LOT_SIZE,
+                "volume": _runtime_lot(),
                 "type": order_type,
                 "price": price,
                 "sl": ticket.sl_price,
@@ -130,7 +141,7 @@ class MT5OrderRouter:
                 "order_id": order_id,
                 "symbol": ticket.symbol,
                 "direction": ticket.direction,
-                "lot": FIXED_LOT_SIZE,
+                "lot": _runtime_lot(),
                 "fill_price": fill_price,
                 "initial_sl": ticket.sl_price,
                 "current_sl": ticket.sl_price,
@@ -157,7 +168,7 @@ class MT5OrderRouter:
                 order_id=order_id,
                 symbol=ticket.symbol,
                 direction=ticket.direction,
-                lot=FIXED_LOT_SIZE,
+                lot=_runtime_lot(),
                 fill_price=fill_price,
                 initial_sl=ticket.sl_price,
                 current_sl=ticket.sl_price,

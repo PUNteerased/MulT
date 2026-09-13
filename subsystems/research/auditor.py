@@ -175,8 +175,10 @@ def run_calculation_audit(
     tool_trace: List[Dict[str, Any]] = []
 
     if use_llm:
-        client = LocalLLMClient()
-        if client.is_reachable():
+        client = LocalLLMClient.from_runtime()
+        if not client.enabled:
+            llm_meta["error"] = "disabled"
+        elif client.is_reachable():
             prompt_checks = "\n".join(
                 f"- [{ 'OK' if c['ok'] else 'FAIL' }] {c['detail']}" for c in checks
             )

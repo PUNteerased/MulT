@@ -110,7 +110,14 @@ class LightGBMMetaFilter:
         X_in = np.array([row], dtype=np.float32)
         win_prob = float(self.booster.predict(X_in)[0])
 
-        is_approved = win_prob >= self.min_win_prob
+        try:
+            from subsystems.config.system_runtime import load_settings
+
+            threshold = float(load_settings().meta.min_win_probability)
+        except Exception:
+            threshold = float(self.min_win_prob)
+
+        is_approved = win_prob >= threshold
         return is_approved, round(win_prob, 3)
 
     def retrain_on_trade_history(self, trades_df: pd.DataFrame):

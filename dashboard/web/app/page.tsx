@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   Cpu,
   Database,
   FileSearch,
+  FlaskConical,
   Gauge,
   LayoutDashboard,
   LockKeyhole,
@@ -17,6 +18,7 @@ import {
   Network,
   RefreshCw,
   Server,
+  Settings2,
   ShieldCheck,
   Terminal,
   Wallet,
@@ -25,6 +27,7 @@ import {
 } from 'lucide-react'
 import { useLiveDashboard, type LiveDashboardApi } from '@/hooks/useLiveDashboard'
 import {
+  apiGet,
   apiPost,
   cumulativeEquity,
   equityPath,
@@ -33,6 +36,8 @@ import {
   isVercelHost,
 } from '@/lib/backend'
 import type { PositionLive, Tone } from '@/lib/types'
+import { RiskLab } from '@/components/RiskLab'
+import { SettingsPanel } from '@/components/SettingsPanel'
 
 function VercelTunnelBanner({
   connected,
@@ -96,13 +101,37 @@ function VercelTunnelBanner({
   )
 }
 
-const nav = [
-  { id: 'overview', label: 'Command overview', icon: LayoutDashboard },
-  { id: 'hardware', label: 'Computer telemetry', icon: Cpu },
-  { id: 'portfolio', label: 'Portfolio & risk', icon: Wallet },
-  { id: 'research', label: 'Research', icon: FileSearch },
-  { id: 'mult', label: 'MulT system engine', icon: Network },
+const navGroups = [
+  {
+    label: 'Overview',
+    items: [
+      { id: 'overview', label: 'Command', icon: LayoutDashboard },
+      { id: 'hardware', label: 'Hardware', icon: Cpu },
+    ],
+  },
+  {
+    label: 'Trading',
+    items: [
+      { id: 'portfolio', label: 'Portfolio', icon: Wallet },
+      { id: 'trades', label: 'Trades', icon: Activity },
+      { id: 'mult', label: 'Engine', icon: Network },
+    ],
+  },
+  {
+    label: 'Process',
+    items: [
+      { id: 'risklab', label: 'Risk Lab', icon: FlaskConical },
+      { id: 'research', label: 'Research', icon: FileSearch },
+    ],
+  },
+  {
+    label: 'System',
+    items: [{ id: 'settings', label: 'Settings', icon: Settings2 }],
+  },
 ]
+
+const navFlat = navGroups.flatMap((g) => g.items)
+
 
 function Sparkline({ tone = 'cyan' }: { tone?: string }) {
   const stroke = tone === 'green' ? '#4ade80' : tone === 'rose' ? '#fb7185' : '#67e8f9'
@@ -234,7 +263,7 @@ function PositionTable({ positions }: { positions: PositionLive[] }) {
   )
 }
 
-function Overview({ live }: { live: LiveDashboardApi }) {
+function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskLab?: () => void }) {
   const pf = live.portfolio
   const equity = pf?.current_equity ?? live.account?.equity ?? 50
   const balance = pf?.current_balance ?? live.account?.balance ?? 50
@@ -361,7 +390,42 @@ function Overview({ live }: { live: LiveDashboardApi }) {
           </div>
         </section>
       </div>
-      <RiskConfigEditor live={live} />
+      <section className="panel" style={{ marginTop: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">RISK GUARD</p>
+            <h2>Live sizing summary</h2>
+          </div>
+          <span className="badge amber">{live.status?.risk?.label || '0.5% eq'}</span>
+        </div>
+        <div className="detail-grid">
+          <div>
+            <span>Live cap</span>
+            <strong>{formatUsd(live.status?.risk?.risk_cap_usd)}</strong>
+          </div>
+          <div>
+            <span>Mode</span>
+            <strong className="mono">{live.status?.risk?.mode || 'pct'}</strong>
+          </div>
+          <div>
+            <span>Cooldown</span>
+            <strong>{live.status?.risk?.cooldown ? 'ACTIVE' : 'Clear'}</strong>
+          </div>
+          <div>
+            <span>Editor</span>
+            <strong>
+              <button
+                type="button"
+                className="subtle-button"
+                style={{ padding: '4px 8px' }}
+                onClick={() => onOpenRiskLab?.()}
+              >
+                Open Risk Lab →
+              </button>
+            </strong>
+          </div>
+        </div>
+      </section>
       <section className="panel table-panel">
         <div className="panel-title">
           <div>
@@ -502,145 +566,62 @@ function Hardware({ live }: { live: LiveDashboardApi }) {
   )
 }
 
-function RiskConfigEditor({ live }: { live: LiveDashboardApi }) {
-  const r = live.status?.risk
-  const [mode, setMode] = useState<'pct' | 'fixed'>(r?.mode || 'pct')
-  const [pctInput, setPctInput] = useState(String(((r?.risk_pct ?? r?.pct ?? 0.005) * 100).toFixed(2)))
-  const [fixedInput, setFixedInput] = useState(String(r?.fixed_dollars ?? 2.5))
-  const [floor, setFloor] = useState(String(r?.floor ?? 1))
-  const [ceiling, setCeiling] = useState(String(r?.ceiling ?? 5))
-  const [msg, setMsg] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!r) return
-    setMode(r.mode || 'pct')
-    setPctInput(String(((r.risk_pct ?? r.pct ?? 0.005) * 100).toFixed(2)))
-    setFixedInput(String(r.fixed_dollars ?? 2.5))
-    setFloor(String(r.floor ?? 1))
-    setCeiling(String(r.ceiling ?? 5))
-  }, [r?.mode, r?.pct, r?.risk_pct, r?.fixed_dollars, r?.floor, r?.ceiling, r?.updated_at])
-
-  async function save() {
-    if (!live.backendUrl) {
-      setMsg('No backend URL')
-      return
-    }
-    setBusy(true)
-    const body =
-      mode === 'fixed'
-        ? { mode: 'fixed' as const, fixed_dollars: Number(fixedInput) }
-        : {
-            mode: 'pct' as const,
-            risk_pct: Number(pctInput), // API accepts 0.5 as 0.5%
-            floor: Number(floor),
-            ceiling: Number(ceiling),
-          }
-    const res = await apiPost<{ ok?: boolean; reason?: string; config?: { label?: string; risk_cap_usd?: number } }>(
-      live.backendUrl,
-      '/api/risk/config',
-      body,
-    )
-    setBusy(false)
-    if (res?.ok) {
-      setMsg(`Saved · live cap ${formatUsd(res.config?.risk_cap_usd)} (${res.config?.label || mode})`)
-      await live.refresh()
-    } else {
-      setMsg(`Save failed: ${res?.reason || 'error'}`)
-    }
-  }
-
-  const inputStyle: CSSProperties = {
-    width: '100%',
-    padding: '8px 10px',
-    borderRadius: 6,
-    border: '1px solid rgba(148,163,184,.35)',
-    background: '#0b1220',
-    color: '#e2e8f0',
-    fontSize: 13,
-  }
+function TradesPanel({ live }: { live: LiveDashboardApi }) {
+  const closed = live.portfolio?.closed_trades || live.trades || []
+  const open = live.account?.active_positions || []
 
   return (
-    <section className="panel" style={{ marginTop: 15 }}>
-      <div className="panel-title">
-        <div>
-          <p className="eyebrow">RISK CONFIG</p>
-          <h2>Percent of equity or fixed $</h2>
+    <>
+      <Header title="Trades" clock={live.clock} connected={live.connected} />
+      <section className="panel table-panel">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">OPEN</p>
+            <h2>Active positions</h2>
+          </div>
+          <span className="badge cyan">{open.length}</span>
         </div>
-        <span className="badge amber">{r?.label || '0.5% eq'}</span>
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '8px 4px' }}>
-        <button
-          className="primary-button"
-          style={{
-            padding: '8px 14px',
-            fontSize: 12,
-            opacity: mode === 'pct' ? 1 : 0.55,
-          }}
-          onClick={() => setMode('pct')}
-          type="button"
-        >
-          % of equity
-        </button>
-        <button
-          className="primary-button"
-          style={{
-            padding: '8px 14px',
-            fontSize: 12,
-            opacity: mode === 'fixed' ? 1 : 0.55,
-          }}
-          onClick={() => setMode('fixed')}
-          type="button"
-        >
-          Fixed $
-        </button>
-      </div>
-      {mode === 'pct' ? (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-            gap: 10,
-            padding: '4px 4px 12px',
-          }}
-        >
-          <label style={{ fontSize: 11, color: '#94a3b8' }}>
-            Risk % per trade
-            <input className="mono" style={inputStyle} value={pctInput} onChange={(e) => setPctInput(e.target.value)} />
-          </label>
-          <label style={{ fontSize: 11, color: '#94a3b8' }}>
-            Floor $
-            <input className="mono" style={inputStyle} value={floor} onChange={(e) => setFloor(e.target.value)} />
-          </label>
-          <label style={{ fontSize: 11, color: '#94a3b8' }}>
-            Ceiling $
-            <input className="mono" style={inputStyle} value={ceiling} onChange={(e) => setCeiling(e.target.value)} />
-          </label>
+        <PositionTable positions={open} />
+      </section>
+      <section className="panel table-panel" style={{ marginTop: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">JOURNAL</p>
+            <h2>Closed / logged trades</h2>
+          </div>
+          <span className="badge green">{closed.length}</span>
         </div>
-      ) : (
-        <div style={{ maxWidth: 220, padding: '4px 4px 12px' }}>
-          <label style={{ fontSize: 11, color: '#94a3b8' }}>
-            Fixed $ per trade
-            <input className="mono" style={inputStyle} value={fixedInput} onChange={(e) => setFixedInput(e.target.value)} />
-          </label>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>PnL</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(closed.length
+                ? closed.slice(0, 80)
+                : [{ time: '—', symbol: '—', direction: '—', pnl: 0, comment: 'No trades yet' }]
+              ).map((t: Record<string, unknown>, i: number) => (
+                <tr key={String(t.id || t.ticket_id || i)}>
+                  <td className="mono">{String(t.time || t.closed_at || t.exit_time || '—')}</td>
+                  <td className="mono">{String(t.symbol || '—')}</td>
+                  <td>{String(t.direction || t.side || '—')}</td>
+                  <td className={Number(t.pnl ?? t.profit ?? 0) >= 0 ? 'text-green' : 'text-rose'}>
+                    {formatUsd(Number(t.pnl ?? t.profit ?? 0))}
+                  </td>
+                  <td className="muted">{String(t.comment || t.note || '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '0 4px 10px' }}>
-        <button
-          className="primary-button"
-          style={{ padding: '8px 16px', fontSize: 12 }}
-          disabled={busy || !live.backendUrl}
-          onClick={() => void save()}
-          type="button"
-        >
-          {busy ? 'Saving…' : 'Save risk config'}
-        </button>
-        <span className="mono" style={{ fontSize: 12, color: '#e2e8f0' }}>
-          Live cap now: {formatUsd(r?.risk_cap_usd)}
-        </span>
-      </div>
-      {msg ? <p className="muted" style={{ fontSize: 12, padding: '0 4px 8px' }}>{msg}</p> : null}
-    </section>
+      </section>
+    </>
   )
 }
 
@@ -805,6 +786,20 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
 function ResearchPanel({ live }: { live: LiveDashboardApi }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [detail, setDetail] = useState<string>('')
+  const [llmLabel, setLlmLabel] = useState('Research LLM')
+
+  useEffect(() => {
+    if (!live.backendUrl) return
+    void apiGet<{ settings?: { llm?: { provider?: string; model?: string; enabled?: boolean } } }>(
+      live.backendUrl,
+      '/api/settings',
+    ).then((s) => {
+      const llm = s?.settings?.llm
+      if (!llm) return
+      const p = llm.provider === 'lm_studio' ? 'LM Studio' : 'OpenAI-compatible'
+      setLlmLabel(`${llm.enabled === false ? 'OFF · ' : ''}${p} · ${llm.model || 'model'}`)
+    })
+  }, [live.backendUrl, live.connected])
 
   async function setStatus(reportId: string, status: 'approved' | 'rejected') {
     if (!live.backendUrl) return
@@ -848,7 +843,7 @@ function ResearchPanel({ live }: { live: LiveDashboardApi }) {
           </p>
         </div>
         <span className="badge amber">
-          <FileSearch style={{ width: 12, height: 12, displayInline: true }} /> LM Studio + DuckDuckGo
+          <FileSearch style={{ width: 12, height: 12, display: 'inline' }} /> {llmLabel}
         </span>
       </section>
 
@@ -1176,15 +1171,32 @@ export default function Page() {
       <Hardware live={live} />
     ) : active === 'portfolio' ? (
       <Portfolio live={live} />
+    ) : active === 'trades' ? (
+      <TradesPanel live={live} />
+    ) : active === 'risklab' ? (
+      <RiskLab live={live} />
     ) : active === 'research' ? (
       <ResearchPanel live={live} />
+    ) : active === 'settings' ? (
+      <SettingsPanel live={live} />
     ) : active === 'mult' ? (
       <Mult live={live} />
     ) : (
-      <Overview live={live} />
+      <Overview live={live} onOpenRiskLab={() => setActive('risklab')} />
     )
 
   const zoneCount = Object.values(live.killZones).reduce((n, z) => n + (z.zones?.length || 0), 0)
+  const backendHost = (() => {
+    try {
+      if (!live.backendUrl) return 'no backend'
+      const u = new URL(live.backendUrl)
+      if (u.hostname.includes('ngrok')) return 'ngrok'
+      if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return 'local'
+      return u.hostname
+    } catch {
+      return 'backend'
+    }
+  })()
 
   return (
     <main className="app-shell">
@@ -1212,12 +1224,17 @@ export default function Page() {
           <ArrowDownRight />
         </div>
         <nav>
-          {nav.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
-              <Icon />
-              <span>{label}</span>
-              {id === 'mult' && <b>{zoneCount || 4}</b>}
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <p className="nav-group-label">{group.label}</p>
+              {group.items.map(({ id, label, icon: Icon }) => (
+                <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
+                  <Icon />
+                  <span>{label}</span>
+                  {id === 'mult' && <b>{zoneCount || 4}</b>}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-footer">
@@ -1225,16 +1242,16 @@ export default function Page() {
             <span className="live">
               <i /> {live.connected ? 'Connected' : 'Offline'}
             </span>
-            <small>v1.0.0 · auto backend</small>
+            <small>{backendHost}</small>
           </div>
-          <button className="sidebar-link">
+          <button className="sidebar-link" type="button" onClick={() => setActive('settings')}>
             <AlertTriangle /> System alerts <b>{live.status?.red_folder?.is_active ? 1 : 0}</b>
           </button>
         </div>
       </aside>
       <div className="main-content">
         <div className="mobile-nav">
-          {nav.map(({ id, label, icon: Icon }) => (
+          {navFlat.map(({ id, label, icon: Icon }) => (
             <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>
               <Icon />
               <span>{label.split(' ')[0]}</span>

@@ -1,14 +1,14 @@
-"""Tests for runtime risk config (pct vs fixed)."""
-from pathlib import Path
-
+"""Tests for runtime risk config (pct vs fixed) via system_runtime."""
 from subsystems.risk_guard.guard_50 import RiskGuard50
 from subsystems.risk_guard import runtime_config as rc
+from subsystems.config import system_runtime as sr
 
 
 def test_runtime_pct_and_fixed(tmp_path, monkeypatch):
-    path = tmp_path / "risk_runtime.json"
-    monkeypatch.setattr(rc, "RUNTIME_PATH", path)
-    monkeypatch.setattr(rc, "_cache", None)
+    path = tmp_path / "system_runtime.json"
+    monkeypatch.setattr(sr, "SYSTEM_RUNTIME_PATH", path)
+    monkeypatch.setattr(sr, "LEGACY_RISK_PATH", tmp_path / "missing_risk.json")
+    monkeypatch.setattr(sr, "_cache", None)
 
     cfg = rc.save_risk_config(
         {"mode": "pct", "risk_pct": 0.5, "floor": 1.0, "ceiling": 5.0}

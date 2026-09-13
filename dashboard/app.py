@@ -363,6 +363,13 @@ class RiskConfigBody(BaseModel):
     floor: Opt[float] = None
     ceiling: Opt[float] = None
     fixed_dollars: Opt[float] = None
+    max_concurrent_positions: Opt[int] = None
+    fixed_lot_size: Opt[float] = None
+    max_spread_risk_pct: Opt[float] = None
+    streak_half_at: Opt[int] = None
+    cooldown_at: Opt[int] = None
+    cooldown_clear_wins: Opt[int] = None
+    cooldown_hours: Opt[float] = None
 
 
 @app.get("/api/risk/config")
@@ -382,6 +389,74 @@ async def post_risk_config(body: RiskConfigBody):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "config": cfg.public_dict()}
+
+
+class SettingsBody(BaseModel):
+    section: Opt[str] = None
+    patch: Opt[Dict[str, Any]] = None
+
+
+@app.get("/api/settings")
+async def get_all_settings():
+    from subsystems.config.system_runtime import load_settings
+
+    rt = await asyncio.to_thread(load_settings)
+    return {"ok": True, "settings": rt.public_dict(mask_secrets=True)}
+
+
+@app.post("/api/settings")
+async def post_all_settings(body: SettingsBody):
+    from subsystems.config.system_runtime import save_settings
+
+    patch = body.patch or {}
+    try:
+        if body.section:
+            rt = await asyncio.to_thread(save_settings, patch, body.section)
+        else:
+            rt = await asyncio.to_thread(save_settings, patch, None)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "settings": rt.public_dict(mask_secrets=True)}
+
+
+@app.get("/api/settings/{section}")
+async def get_settings_section(section: str):
+    from subsystems.config.system_runtime import SECTIONS, load_settings
+
+    if section not in SECTIONS:
+        raise HTTPException(status_code=404, detail=f"Unknown section: {section}")
+    rt = await asyncio.to_thread(load_settings)
+    data = rt.public_dict(mask_secrets=True)
+    return {"ok": True, "section": section, "config": data.get(section)}
+
+
+@app.post("/api/settings/{section}")
+async def post_settings_section(section: str, body: Dict[str, Any]):
+    from subsystems.config.system_runtime import SECTIONS, save_settings
+
+    if section not in SECTIONS:
+        raise HTTPException(status_code=404, detail=f"Unknown section: {section}")
+    try:
+        rt = await asyncio.to_thread(save_settings, body, section)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    pub = rt.public_dict(mask_secrets=True)
+    return {"ok": True, "section": section, "config": pub.get(section)}
+
+
+@app.post("/api/settings/llm/test")
+async def test_llm_connection():
+    from subsystems.research.llm_client import LocalLLMClient
+
+    client = LocalLLMClient.from_runtime()
+    ok = await asyncio.to_thread(client.is_reachable)
+    return {
+        "ok": ok,
+        "base_url": client.base_url,
+        "model": client.model,
+        "provider": getattr(client, "provider", "unknown"),
+        "detail": "reachable" if ok else "unreachable",
+    }
 
 
 @app.get("/api/telemetry")

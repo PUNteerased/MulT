@@ -131,4 +131,17 @@ def compute_streak_state(
 
 
 def load_streak_state(now: Optional[float] = None) -> Dict[str, Any]:
-    return compute_streak_state(get_recent_closed_pnls(), now=now)
+    try:
+        from subsystems.config.system_runtime import load_settings
+
+        risk = load_settings().risk
+        return compute_streak_state(
+            get_recent_closed_pnls(),
+            now=now,
+            half_at=risk.streak_half_at,
+            cooldown_at=risk.cooldown_at,
+            clear_wins=risk.cooldown_clear_wins,
+            cooldown_hours=risk.cooldown_hours,
+        )
+    except Exception:
+        return compute_streak_state(get_recent_closed_pnls(), now=now)

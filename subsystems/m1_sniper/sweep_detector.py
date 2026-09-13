@@ -26,7 +26,14 @@ class LiquiditySweepDetector:
         if len(df_m1) < 20:
             return False, None
 
-        cfg = SYMBOLS_CONFIG.get(symbol)
+        try:
+            from subsystems.config.system_runtime import load_settings, merged_symbol_config
+
+            cfg = merged_symbol_config(symbol)
+            wick_min = float(load_settings().sniper.wick_ratio_min)
+        except Exception:
+            cfg = SYMBOLS_CONFIG.get(symbol)
+            wick_min = 0.35
         digits = cfg.digits if cfg else 5
         pip_mult = cfg.pip_multiplier if cfg else 0.0001
 
@@ -52,8 +59,8 @@ class LiquiditySweepDetector:
         if zone.direction == OrderDirection.BUY:
             # Low swept below or into the zone
             swept_zone = l <= zone.mid_price or l <= zone.lower_bound
-            # Strong rejection from bottom: lower wick accounts for >= 35% of total bar range
-            has_rejection_wick = (lower_wick / bar_range) >= 0.35
+            # Strong rejection from bottom: lower wick accounts for >= wick_min of total bar range
+            has_rejection_wick = (lower_wick / bar_range) >= wick_min
             # Close finishes back up inside or above zone
             closed_favorable = c >= l + (lower_wick * 0.8) and c > o
 
@@ -76,8 +83,8 @@ class LiquiditySweepDetector:
         elif zone.direction == OrderDirection.SELL:
             # High swept above or into the zone
             swept_zone = h >= zone.mid_price or h >= zone.upper_bound
-            # Strong rejection from top: upper wick accounts for >= 35% of total range
-            has_rejection_wick = (upper_wick / bar_range) >= 0.35
+            # Strong rejection from top: upper wick accounts for >= wick_min of total range
+            has_rejection_wick = (upper_wick / bar_range) >= wick_min
             # Close finishes back down inside or below zone
             closed_favorable = c <= h - (upper_wick * 0.8) and c < o
 

@@ -1,6 +1,6 @@
 """
-Risk Guard — % of equity + anti-martingale streak scaling.
-Fixed 0.01 lot; dynamic dollar cap from equity * risk_pct (floor/ceiling).
+Risk Guard — % of equity or fixed $ + anti-martingale streak scaling.
+Reads knobs from system_runtime.risk.
 """
 from __future__ import annotations
 
@@ -9,14 +9,9 @@ from typing import Any, Dict, Optional, Tuple
 import uuid
 from loguru import logger
 
-from config.settings import (
-    MAX_CONCURRENT_POSITIONS,
-    FIXED_LOT_SIZE,
-    MAX_SPREAD_RISK_PCT,
-    SYMBOLS_CONFIG,
-)
 from core.bus.events import OrderDirection, TriggerAlertEvent, TradeTicketEvent
 from core.risk.money import price_diff_to_usd, spread_points_to_usd, atr_stop_distance, trailing_offset_price
+from subsystems.config.system_runtime import merged_symbol_config
 from subsystems.risk_guard.runtime_config import load_risk_config
 from subsystems.risk_guard.streak import load_streak_state
 
@@ -35,8 +30,10 @@ class RiskGuard50:
 
     @classmethod
     def calculate_risk_dollars(
-        cls, symbol: str, entry_price: float, sl_price: float, lot: float = FIXED_LOT_SIZE
+        cls, symbol: str, entry_price: float, sl_price: float, lot: Optional[float] = None
     ) -> float:
+        risk = load_risk_config()
+        lot = float(lot if lot is not None else risk.fixed_lot_size)
         return price_diff_to_usd(symbol, entry_price, sl_price, lot)
 
     @classmethod
@@ -54,15 +51,15 @@ class RiskGuard50:
         wick_sl: float,
         atr: Optional[float] = None,
         max_risk: Optional[float] = None,
+        lot: Optional[float] = None,
     ) -> Tuple[float, dict]:
-        """
-        Among wick SL and optional ATR SL, pick farthest from entry that still
-        risks <= max_risk. Reject if none fit.
-        """
         runtime = load_risk_config()
+        lot = float(lot if lot is not None else runtime.fixed_lot_size)
         default_cap = runtime.ceiling if runtime.mode == "pct" else runtime.fixed_dollars
         cap = float(max_risk if max_risk is not None else default_cap)
-        cfg = SYMBOLS_CONFIG[symbol]
+        cfg = merged_symbol_config(symbol)
+        if cfg is None:
+            return wick_sl, {"rejected": "unknown_symbol"}
         meta = {
             "atr_at_entry": float(atr or 0.0),
             "k1": float(cfg.atr_k1),
@@ -84,7 +81,7 @@ class RiskGuard50:
                 continue
             if direction == OrderDirection.SELL and sl <= entry:
                 continue
-            risk = price_diff_to_usd(symbol, entry, sl, FIXED_LOT_SIZE)
+            risk = price_diff_to_usd(symbol, entry, sl, lot)
             if 0.05 < risk <= cap:
                 valid.append((sl, risk))
 
@@ -110,16 +107,17 @@ class RiskGuard50:
         atr: Optional[float] = None,
         streak_state: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str, Optional[TradeTicketEvent]]:
-        """
-        Evaluate sniper trigger against dynamic equity risk + streak rules.
-        Optional `streak_state` injects precomputed streak (tests / offline).
-        """
         sym = alert.symbol
-        cfg = SYMBOLS_CONFIG.get(sym)
+        cfg = merged_symbol_config(sym)
         if not cfg:
             return False, f"Unknown symbol config: {sym}", None
 
-        if active_positions_count >= MAX_CONCURRENT_POSITIONS:
+        risk_cfg = load_risk_config()
+        max_conc = int(risk_cfg.max_concurrent_positions)
+        lot = float(risk_cfg.fixed_lot_size)
+        spread_pct = float(risk_cfg.max_spread_risk_pct)
+
+        if active_positions_count >= max_conc:
             return False, f"Concurrency limit reached ({active_positions_count} active)", None
 
         if account_equity < 40.0:
@@ -146,7 +144,6 @@ class RiskGuard50:
         if max_risk <= 0.05:
             return False, f"Risk cap too small after streak scaling: ${max_risk:.2f}", None
 
-        lot = FIXED_LOT_SIZE
         entry = alert.entry_price
         wick_sl = alert.wick_sl_price
 
@@ -156,17 +153,17 @@ class RiskGuard50:
             return False, f"Invalid SELL SL: {wick_sl} <= entry {entry}", None
 
         spread_usd = spread_points_to_usd(sym, current_spread_points, lot, mid_price=entry)
-        max_spread_usd = max_risk * MAX_SPREAD_RISK_PCT
+        max_spread_usd = max_risk * spread_pct
         if spread_usd > max_spread_usd:
             return (
                 False,
-                f"Spread risk ${spread_usd:.2f} > {MAX_SPREAD_RISK_PCT*100:.0f}% of "
+                f"Spread risk ${spread_usd:.2f} > {spread_pct*100:.0f}% of "
                 f"${max_risk:.2f} budget (${max_spread_usd:.2f})",
                 None,
             )
 
         sl, atr_meta = cls.resolve_sl_with_atr(
-            sym, alert.direction, entry, wick_sl, atr=atr, max_risk=max_risk
+            sym, alert.direction, entry, wick_sl, atr=atr, max_risk=max_risk, lot=lot
         )
         if atr_meta.get("rejected"):
             return False, f"ATR/wick SL cannot fit under ${max_risk:.2f} risk cap", None
@@ -194,7 +191,6 @@ class RiskGuard50:
             be_lock = entry - trail_off
             tp_target = entry - (sl_distance * 3.0)
 
-        runtime = load_risk_config()
         ticket = TradeTicketEvent(
             ticket_id=f"TKT_{uuid.uuid4().hex[:8].upper()}",
             symbol=sym,
@@ -213,15 +209,14 @@ class RiskGuard50:
             atr_k1=float(cfg.atr_k1),
             atr_k2=float(cfg.atr_k2),
             risk_cap_usd=round(max_risk, 4),
-            risk_pct=float(runtime.risk_pct if runtime.mode == "pct" else 0.0),
+            risk_pct=float(risk_cfg.risk_pct if risk_cfg.mode == "pct" else 0.0),
             streak_multiplier=float(streak.get("multiplier", 1.0)),
         )
 
         logger.info(
             f"[RiskGuard50] APPROVED: {ticket.ticket_id} {sym} {ticket.direction} "
-            f"0.01 lot | Entry={ticket.entry_price} SL={ticket.sl_price} "
+            f"{lot} lot | Entry={ticket.entry_price} SL={ticket.sl_price} "
             f"Risk=${ticket.risk_dollars:.2f}/{max_risk:.2f} "
-            f"eq=${account_equity:.2f} streak={streak.get('reason')} "
-            f"ATR={ticket.atr_at_entry} spreadUSD=${ticket.spread_usd}"
+            f"eq=${account_equity:.2f} streak={streak.get('reason')}"
         )
         return True, "APPROVED", ticket

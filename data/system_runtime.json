@@ -1,0 +1,84 @@
+{
+  "risk": {
+    "mode": "pct",
+    "risk_pct": 0.005,
+    "floor": 1.0,
+    "ceiling": 5.0,
+    "fixed_dollars": 2.5,
+    "max_concurrent_positions": 1,
+    "fixed_lot_size": 0.01,
+    "max_spread_risk_pct": 0.2,
+    "streak_half_at": 2,
+    "cooldown_at": 3,
+    "cooldown_clear_wins": 2,
+    "cooldown_hours": 4.0
+  },
+  "llm": {
+    "provider": "lm_studio",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "model": "qwen/qwen3-8b",
+    "api_key": "lm-studio",
+    "timeout_s": 90.0,
+    "temperature": 0.2,
+    "max_tokens": 1200,
+    "enabled": true
+  },
+  "meta": {
+    "min_win_probability": 0.75
+  },
+  "sniper": {
+    "alert_cooldown_s": 45.0,
+    "m1_lookback": 60,
+    "min_bars": 40,
+    "wick_ratio_min": 0.35
+  },
+  "calendar": {
+    "enabled": true,
+    "blackout_before_min": 30,
+    "blackout_after_min": 15,
+    "poll_interval_sec": 30.0
+  },
+  "execution": {
+    "fixed_lot_size": 0.01,
+    "max_concurrent_positions": 1
+  },
+  "symbols": {
+    "EURUSD": {
+      "atr_k1": 1.2,
+      "atr_k2": 0.15,
+      "max_spread_points": 50,
+      "use_atr_sizing": true,
+      "be_trigger_rr": 1.5,
+      "be_lock_pips": 2.0,
+      "trailing_step_pips": 1.5
+    },
+    "USDJPY": {
+      "atr_k1": 1.2,
+      "atr_k2": 0.15,
+      "max_spread_points": 50,
+      "use_atr_sizing": true,
+      "be_trigger_rr": 1.5,
+      "be_lock_pips": 2.0,
+      "trailing_step_pips": 1.5
+    },
+    "XAUUSD": {
+      "atr_k1": 1.2,
+      "atr_k2": 0.15,
+      "max_spread_points": 60,
+      "use_atr_sizing": true,
+      "be_trigger_rr": 1.5,
+      "be_lock_pips": 2.0,
+      "trailing_step_pips": 2.0
+    },
+    "BTCUSD": {
+      "atr_k1": 1.2,
+      "atr_k2": 0.15,
+      "max_spread_points": 3500,
+      "use_atr_sizing": true,
+      "be_trigger_rr": 1.5,
+      "be_lock_pips": 5.0,
+      "trailing_step_pips": 10.0
+    }
+  },
+  "updated_at": 1789294896.1949022
+}

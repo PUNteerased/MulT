@@ -36,14 +36,25 @@ class EconomicCalendarCrawler:
         Returns (is_halted, active_event_title).
         """
         now = now_utc or datetime.now(timezone.utc)
+        try:
+            from subsystems.config.system_runtime import load_settings
+
+            cal = load_settings().calendar
+            if not cal.enabled:
+                return False, ""
+            before_m = int(cal.blackout_before_min)
+            after_m = int(cal.blackout_after_min)
+        except Exception:
+            before_m, after_m = 30, 15
+
         for evt in self.scheduled_events:
             evt_time = evt["time_utc"]
             # Ensure timezone-aware comparison
             if evt_time.tzinfo is None:
                 evt_time = evt_time.replace(tzinfo=timezone.utc)
 
-            window_start = evt_time - timedelta(minutes=30)
-            window_end = evt_time + timedelta(minutes=15)
+            window_start = evt_time - timedelta(minutes=before_m)
+            window_end = evt_time + timedelta(minutes=after_m)
 
             if window_start <= now <= window_end:
                 return True, evt["title"]
@@ -77,6 +88,17 @@ class EconomicCalendarCrawler:
         """Background loop broadcasting SystemStateEvent when Red Folder approaches."""
         while True:
             try:
+                try:
+                    from subsystems.config.system_runtime import load_settings
+
+                    cal = load_settings().calendar
+                    if not cal.enabled:
+                        await asyncio.sleep(max(5.0, float(cal.poll_interval_sec)))
+                        continue
+                    poll = float(cal.poll_interval_sec)
+                except Exception:
+                    poll = poll_interval_sec
+
                 halted, event_title = self.check_red_folder_status()
                 if halted and not self.is_halted:
                     self.is_halted = True
@@ -97,7 +119,7 @@ class EconomicCalendarCrawler:
                     )
                     await self.publisher.publish(TOPIC_SYSTEM_STATE, event)
 
-                await asyncio.sleep(poll_interval_sec)
+                await asyncio.sleep(poll)
             except asyncio.CancelledError:
                 break
             except Exception as e:

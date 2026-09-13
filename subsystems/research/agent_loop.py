@@ -182,8 +182,8 @@ def run_research_agent(
     summary = ""
     ideas: List[str] = []
 
-    llm = client or LocalLLMClient()
-    if use_llm and llm.is_reachable():
+    llm = client or LocalLLMClient.from_runtime()
+    if use_llm and getattr(llm, "enabled", True) and llm.is_reachable():
         llm_meta["used"] = True
         llm_meta["model"] = llm.model
         llm_meta["base_url"] = llm.base_url

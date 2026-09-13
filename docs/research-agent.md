@@ -13,9 +13,10 @@ Human-gated research subsystem. **Never auto-writes** `settings` / `symbols.yaml
 
 ## Zero-cost constraint
 
-- No Anthropic / OpenAI cloud billing
-- LLM = **LM Studio** `qwen/qwen3-8b` @ `http://127.0.0.1:1234/v1`
+- Default LLM = **LM Studio** `qwen/qwen3-8b` @ `http://127.0.0.1:1234/v1`
+- Dashboard **Settings → Research LLM** can switch to any OpenAI-compatible endpoint (runtime only — see [settings.md](settings.md))
 - Web search = **duckduckgo-search** (retry/backoff; fail → empty report, never recycle stale news)
+- Research Agent **never** auto-writes system settings
 
 ## Quality gate
 

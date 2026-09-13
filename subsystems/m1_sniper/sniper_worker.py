@@ -41,12 +41,22 @@ class M1SniperWorker:
 
         # Prevent duplicate alerts on the same bar/minute
         now = time.time()
-        if now - self.last_alert_time.get(sym, 0) < 45.0:
+        try:
+            from subsystems.config.system_runtime import load_settings
+
+            sn = load_settings().sniper
+            cooldown = float(sn.alert_cooldown_s)
+            lookback = int(sn.m1_lookback)
+            min_bars = int(sn.min_bars)
+        except Exception:
+            cooldown, lookback, min_bars = 45.0, 60, 40
+
+        if now - self.last_alert_time.get(sym, 0) < cooldown:
             return None
 
         # Fetch recent M1 bars
-        df_m1 = self.cache.get_m1_dataframe(sym, count=60)
-        if df_m1 is None or len(df_m1) < 40:
+        df_m1 = self.cache.get_m1_dataframe(sym, count=lookback)
+        if df_m1 is None or len(df_m1) < min_bars:
             return None
 
         # 1. Algorithmic Liquidity Sweep Detection

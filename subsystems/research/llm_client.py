@@ -24,11 +24,35 @@ class LocalLLMClient:
         model: str = LLM_MODEL,
         api_key: str = LLM_API_KEY,
         timeout_s: float = 90.0,
+        provider: str = "lm_studio",
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout_s = timeout_s
+        self.provider = provider
+
+    @classmethod
+    def from_runtime(cls) -> "LocalLLMClient":
+        from subsystems.config.system_runtime import load_settings
+
+        llm = load_settings().llm.apply_provider_defaults()
+        return cls(
+            base_url=llm.base_url,
+            model=llm.model,
+            api_key=llm.api_key,
+            timeout_s=llm.timeout_s,
+            provider=llm.provider,
+        )
+
+    @property
+    def enabled(self) -> bool:
+        try:
+            from subsystems.config.system_runtime import load_settings
+
+            return bool(load_settings().llm.enabled)
+        except Exception:
+            return True
 
     def is_reachable(self) -> bool:
         try:
