@@ -5,9 +5,12 @@ Enables local access, LAN access from phone/tablet, and optional remote tunnel.
 """
 import argparse
 import socket
-import sys
+import urllib.parse
 import uvicorn
 from loguru import logger
+
+VERCEL_UI = "https://mult-trade-forex.vercel.app"
+
 
 def get_local_ip() -> str:
     """Detect LAN IP address of this laptop."""
@@ -20,22 +23,31 @@ def get_local_ip() -> str:
     except Exception:
         return "127.0.0.1"
 
+
 def start_ngrok_tunnel(port: int):
     """Optional ngrok public tunnel launcher."""
     try:
         import ngrok
         logger.info("[Tunnel] Attempting to establish ngrok public tunnel...")
-        # Note: ngrok.forward may require NGROK_AUTHTOKEN environment variable
         listener = ngrok.forward(port, authtoken_from_env=True)
-        logger.info(f"🌐 PUBLIC REMOTE URL (Accessible from mobile anywhere): {listener.url()}")
+        public_url = str(listener.url()).rstrip("/")
+        logger.info(f"PUBLIC TUNNEL: {public_url}")
+        bridge = f"{VERCEL_UI}?backend={urllib.parse.quote(public_url, safe='')}"
+        print("=" * 65)
+        print("Vercel bridge (open this once — UI remembers tunnel):")
+        print(f"  {bridge}")
+        print("Or open the tunnel URL directly (UI+API same origin):")
+        print(f"  {public_url}")
+        print("=" * 65)
         return listener
     except Exception as e:
         logger.warning(
             f"[Tunnel] Could not auto-start ngrok ({e}).\n"
-            f"💡 To create a remote tunnel manually while at class, run in another terminal:\n"
-            f"   ngrok http {port}  OR  npx localtunnel --port {port}"
+            f"  Manual: ngrok http {port}\n"
+            f"  Then open: {VERCEL_UI}?backend=https://YOUR-NGROK-URL"
         )
         return None
+
 
 def main():
     parser = argparse.ArgumentParser(description="Deep-Sniper AI Dashboard Server")
@@ -47,24 +59,24 @@ def main():
     local_ip = get_local_ip()
 
     print("=" * 65)
-    print("🚀 DEEP-SNIPER AI - QUANT WEB DASHBOARD")
+    print("DEEP-SNIPER AI - QUANT WEB DASHBOARD")
     print("=" * 65)
-    print(f"💻 Local Machine:      http://localhost:{args.port}")
-    print(f"📱 Phone on same Wi-Fi: http://{local_ip}:{args.port}")
-    print("⚡ Real-time Telemetry: RTX 4050 VRAM, Ryzen 7 CPU, MT5 & $50 Shield")
+    print(f"Local Machine:      http://localhost:{args.port}")
+    print(f"Phone on same Wi-Fi: http://{local_ip}:{args.port}")
+    print(f"Vercel UI (needs tunnel): {VERCEL_UI}")
     print("=" * 65)
 
     if args.tunnel:
         start_ngrok_tunnel(args.port)
 
-    # Run uvicorn server
     uvicorn.run(
         "dashboard.app:app",
         host=args.host,
         port=args.port,
         reload=False,
-        log_level="info"
+        log_level="info",
     )
+
 
 if __name__ == "__main__":
     main()

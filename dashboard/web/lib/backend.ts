@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'mulT_backend_url'
+const VERCEL_HOST_RE = /vercel\.app$/i
 
 export function getStoredBackendUrl(): string {
   if (typeof window === 'undefined') return ''
@@ -14,42 +15,79 @@ export function setStoredBackendUrl(url: string) {
   localStorage.setItem(STORAGE_KEY, url.replace(/\/$/, ''))
 }
 
+export function isVercelHost(hostname?: string): boolean {
+  if (typeof window === 'undefined' && !hostname) return false
+  const host = hostname ?? window.location.hostname
+  return VERCEL_HOST_RE.test(host)
+}
+
 function isBrowserLocalHost(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
 }
 
+function cleanUrl(url: string): string {
+  return url.trim().replace(/\/$/, '')
+}
+
+function backendFromQuery(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const q = new URLSearchParams(window.location.search).get('backend')
+    return q ? cleanUrl(q) : ''
+  } catch {
+    return ''
+  }
+}
+
 /**
- * Single-user auto backend:
- * 1) same origin (FastAPI / ngrok serving this UI)
- * 2) localhost:8000 when UI is on Next :3000
- * 3) optional NEXT_PUBLIC_BACKEND_URL
- * 4) last stored override (advanced only)
+ * Resolve API base URL.
+ * - Local / ngrok / LAN (UI served by FastAPI): same origin
+ * - Vercel static UI: ?backend= → localStorage → NEXT_PUBLIC_BACKEND_URL
  */
 export function resolveBackendUrl(explicit?: string): string {
-  if (explicit) return explicit.replace(/\/$/, '')
+  if (explicit) return cleanUrl(explicit)
 
   if (typeof window !== 'undefined') {
     const { hostname, origin, port } = window.location
 
-    // UI served by FastAPI / ngrok / LAN → same origin (no manual URL)
-    if (!hostname.includes('vercel.app')) {
-      // Next.js dev on :3000 → API on :8000
-      if (isBrowserLocalHost(hostname) && (port === '3000' || port === '3001')) {
-        return 'http://127.0.0.1:8000'
+    // Vercel page has no Python API — must use laptop tunnel URL
+    if (isVercelHost(hostname)) {
+      const fromQuery = backendFromQuery()
+      if (fromQuery) {
+        setStoredBackendUrl(fromQuery)
+        return fromQuery
       }
-      return origin.replace(/\/$/, '')
+      const stored = getStoredBackendUrl()
+      if (stored) {
+        try {
+          if (!VERCEL_HOST_RE.test(new URL(stored).hostname)) return stored
+        } catch {
+          /* ignore bad stored */
+        }
+      }
+      const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || ''
+      if (envUrl) return envUrl
+      return ''
     }
+
+    // Next.js dev on :3000 → API on :8000
+    if (isBrowserLocalHost(hostname) && (port === '3000' || port === '3001')) {
+      return 'http://127.0.0.1:8000'
+    }
+
+    // FastAPI / ngrok / LAN serving this UI
+    return origin.replace(/\/$/, '')
   }
 
-  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || ''
-  if (envUrl) return envUrl
-
-  // Do not force stored URL for normal single-user flow
-  return typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : ''
+  return process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || ''
 }
 
 export function toWsUrl(backendUrl: string): string {
-  const base = backendUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8000')
+  const base =
+    backendUrl ||
+    (typeof window !== 'undefined' && !isVercelHost()
+      ? window.location.origin
+      : 'http://127.0.0.1:8000')
   const proto = base.startsWith('https') ? 'wss:' : 'ws:'
   const host = base.replace(/^https?:\/\//, '').replace(/\/$/, '')
   return `${proto}//${host}/ws`
@@ -59,7 +97,13 @@ export async function apiGet<T>(backendUrl: string, path: string): Promise<T | n
   const base = backendUrl || resolveBackendUrl()
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`, { cache: 'no-store' })
+    const res = await fetch(`${base}${path}`, {
+      cache: 'no-store',
+      headers: {
+        // ngrok free interstitial bypass
+        'ngrok-skip-browser-warning': 'true',
+      },
+    })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {

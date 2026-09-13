@@ -29,8 +29,71 @@ import {
   equityPath,
   formatPrice,
   formatUsd,
+  isVercelHost,
 } from '@/lib/backend'
 import type { PositionLive, Tone } from '@/lib/types'
+
+function VercelTunnelBanner({
+  connected,
+  backendUrl,
+  onSave,
+}: {
+  connected: boolean
+  backendUrl: string
+  onSave: (url: string) => void
+}) {
+  const [value, setValue] = useState(backendUrl)
+  const [show, setShow] = useState(false)
+
+  useEffect(() => {
+    setShow(isVercelHost() && !connected)
+    setValue(backendUrl)
+  }, [connected, backendUrl])
+
+  if (!show) return null
+
+  return (
+    <div
+      style={{
+        gridColumn: '1 / -1',
+        padding: '10px 14px',
+        background: 'rgba(245, 158, 11, 0.12)',
+        borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 8,
+        alignItems: 'center',
+      }}
+    >
+      <span style={{ fontSize: 12, color: '#fbbf24', flex: '1 1 220px' }}>
+        หน้า Vercel ไม่มี backend — วาง Tunnel URL จากโน้ตบุ๊ก (ngrok) ครั้งเดียว แล้วจำไว้
+      </span>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="https://xxxx.ngrok-free.app"
+        className="mono"
+        style={{
+          flex: '1 1 240px',
+          minWidth: 200,
+          padding: '8px 10px',
+          borderRadius: 6,
+          border: '1px solid rgba(251,191,36,.4)',
+          background: '#0b1220',
+          color: '#e2e8f0',
+          fontSize: 12,
+        }}
+      />
+      <button
+        className="primary-button"
+        style={{ padding: '8px 14px', fontSize: 12 }}
+        onClick={() => onSave(value.trim())}
+      >
+        Connect
+      </button>
+    </div>
+  )
+}
 
 const nav = [
   { id: 'overview', label: 'Command overview', icon: LayoutDashboard },
@@ -870,6 +933,11 @@ export default function Page() {
 
   return (
     <main className="app-shell">
+      <VercelTunnelBanner
+        connected={live.connected}
+        backendUrl={live.backendUrl}
+        onSave={(url) => live.setBackendUrl(url)}
+      />
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">M</div>

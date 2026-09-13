@@ -5,6 +5,7 @@ import {
   apiGet,
   formatLocalTime,
   formatClock,
+  isVercelHost,
   resolveBackendUrl,
   setStoredBackendUrl,
   toWsUrl,
@@ -264,15 +265,28 @@ export function useLiveDashboard() {
   }, [])
 
   useEffect(() => {
-    // Single-user: always auto-pick backend (same origin / localhost:8000). No modal.
     const initial = resolveBackendUrl()
     setBackendUrlState(initial)
+    // On Vercel with no tunnel yet — stay idle (banner will ask once)
     const clockTimer = setInterval(() => setClock(formatClock()), 1000)
     return () => clearInterval(clockTimer)
   }, [])
 
   useEffect(() => {
-    if (!backendUrl) return
+    if (!backendUrl) {
+      setConnected(false)
+      return
+    }
+    // Never treat the Vercel static host as the API
+    try {
+      if (isVercelHost(new URL(backendUrl).hostname)) {
+        setConnected(false)
+        return
+      }
+    } catch {
+      setConnected(false)
+      return
+    }
     backendUrlRef.current = backendUrl
     connectWs(backendUrl)
     const poll = setInterval(() => void refreshRestRef.current(backendUrl), 15000)
