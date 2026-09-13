@@ -49,10 +49,22 @@ def test_check_quality_auditor_skips_citation_requirement():
 def test_check_quality_search_failed():
     assert (
         check_quality(
-            citations=[],
-            findings=[],
+            citations=[{"url": "https://x.com"}],
+            findings=["ok"],
             require_citations=True,
             search_failed=True,
+        )
+        == "needs_review"
+    )
+
+
+def test_check_quality_irrelevant_summary():
+    assert (
+        check_quality(
+            citations=[{"url": "https://example.com"}],
+            findings=["Meta business tools"],
+            require_citations=True,
+            summary="The provided search results focus on Meta Platforms' business tools with no direct relevance",
         )
         == "needs_review"
     )

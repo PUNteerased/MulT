@@ -199,6 +199,26 @@ def defaults() -> SystemRuntime:
     return SystemRuntime()
 
 
+def _sync_legacy_risk(rt: SystemRuntime) -> None:
+    try:
+        LEGACY_RISK_PATH.write_text(
+            json.dumps(
+                {
+                    "mode": rt.risk.mode,
+                    "risk_pct": rt.risk.risk_pct,
+                    "floor": rt.risk.floor,
+                    "ceiling": rt.risk.ceiling,
+                    "fixed_dollars": rt.risk.fixed_dollars,
+                    "updated_at": rt.updated_at,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
 def load_settings(*, force: bool = False) -> SystemRuntime:
     global _cache
     with _lock:
@@ -208,6 +228,7 @@ def load_settings(*, force: bool = False) -> SystemRuntime:
             try:
                 raw = json.loads(SYSTEM_RUNTIME_PATH.read_text(encoding="utf-8"))
                 _cache = SystemRuntime(**raw)
+                _sync_legacy_risk(_cache)
                 return _cache
             except Exception as e:
                 logger.warning(f"[SystemRuntime] bad file, using defaults: {e}")
@@ -221,12 +242,12 @@ def load_settings(*, force: bool = False) -> SystemRuntime:
             except Exception as e:
                 logger.warning(f"[SystemRuntime] legacy risk merge failed: {e}")
         _cache = rt
-        # Persist migrated defaults so next boot is stable
         try:
             SYSTEM_RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
             SYSTEM_RUNTIME_PATH.write_text(rt.model_dump_json(indent=2), encoding="utf-8")
         except Exception as e:
             logger.debug(f"[SystemRuntime] initial write skip: {e}")
+        _sync_legacy_risk(rt)
         return _cache
 
 
@@ -286,24 +307,7 @@ def save_settings(payload: Dict[str, Any], section: Optional[str] = None) -> Sys
 
         SYSTEM_RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
         SYSTEM_RUNTIME_PATH.write_text(rt.model_dump_json(indent=2), encoding="utf-8")
-        # Keep legacy risk file in sync for older tooling
-        try:
-            LEGACY_RISK_PATH.write_text(
-                json.dumps(
-                    {
-                        "mode": rt.risk.mode,
-                        "risk_pct": rt.risk.risk_pct,
-                        "floor": rt.risk.floor,
-                        "ceiling": rt.risk.ceiling,
-                        "fixed_dollars": rt.risk.fixed_dollars,
-                        "updated_at": rt.updated_at,
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except Exception:
-            pass
+        _sync_legacy_risk(rt)
         _cache = rt
         logger.info(f"[SystemRuntime] saved sections updated_at={rt.updated_at}")
         return rt

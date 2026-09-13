@@ -289,8 +289,9 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
     """
     Reconstruct portfolio history from MT5 deals.
     Returns initial_balance, equity_curve, closed_trades, analytics (ICT timestamps).
+    Each closed trade is tagged source='ai' | 'legacy' via magic / comment.
     """
-    from config.settings import ACCOUNT_INITIAL_BALANCE
+    from config.settings import ACCOUNT_INITIAL_BALANCE, MT5_MAGIC_NUMBER
 
     empty = {
         "initial_balance": float(ACCOUNT_INITIAL_BALANCE),
@@ -303,6 +304,7 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
         "closed_trades": [],
         "analytics": _analytics_from_pnls([]),
         "source": "fallback",
+        "trade_counts": {"all": 0, "ai": 0, "legacy": 0},
     }
 
     if not MT5_AVAILABLE:
@@ -387,6 +389,9 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
             entry_price = float(entry.price)
             exit_price = float(exit_d.price)
             volume = float(getattr(entry, "volume", 0) or 0)
+            magic = int(getattr(exit_d, "magic", 0) or getattr(entry, "magic", 0) or 0)
+            comment = str(getattr(exit_d, "comment", "") or getattr(entry, "comment", "") or "")
+            is_ai = magic == int(MT5_MAGIC_NUMBER) or comment.startswith("DS_")
             closed_trades.append({
                 "ticket": int(exit_d.ticket),
                 "position_id": pid,
@@ -400,7 +405,9 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
                 "exit_time": _to_ict_str(exit_d.time),
                 "entry_timestamp": float(entry.time),
                 "exit_timestamp": float(exit_d.time),
-                "comment": str(getattr(exit_d, "comment", "") or ""),
+                "comment": comment,
+                "magic": magic,
+                "source": "ai" if is_ai else "legacy",
             })
 
         closed_trades.sort(key=lambda t: t["exit_timestamp"], reverse=True)
@@ -430,6 +437,8 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
 
         net_pnl = round(current_equity - initial_balance, 2)
         net_pnl_pct = round((net_pnl / (initial_balance + 1e-9)) * 100.0, 2)
+        ai_n = sum(1 for t in closed_trades if t.get("source") == "ai")
+        legacy_n = sum(1 for t in closed_trades if t.get("source") == "legacy")
 
         return {
             "initial_balance": float(initial_balance),
@@ -444,6 +453,12 @@ def get_mt5_portfolio_history(days: int = 180) -> Dict[str, Any]:
             "source": "mt5",
             "server": acc.server if acc else "",
             "login": acc.login if acc else 0,
+            "trade_counts": {
+                "all": len(closed_trades),
+                "ai": ai_n,
+                "legacy": legacy_n,
+            },
+            "ai_magic": int(MT5_MAGIC_NUMBER),
         }
     except Exception as e:
         logger.warning(f"[Portfolio] MT5 history error: {e}")
@@ -498,6 +513,8 @@ def portfolio_from_duckdb(duckdb_mgr) -> Dict[str, Any]:
             "entry_timestamp": entry_ts,
             "exit_timestamp": exit_ts,
             "comment": str(r.get("comment") or ""),
+            "magic": 0,
+            "source": "ai",
         })
 
     chrono = sorted(closed, key=lambda t: t["exit_timestamp"] or t["entry_timestamp"])

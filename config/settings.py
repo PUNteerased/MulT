@@ -30,6 +30,8 @@ RISK_COOLDOWN_HOURS = 4.0           # or clear cool-down after this many hours
 MAX_RISK_DOLLARS_PER_TRADE = RISK_DOLLARS_CEILING
 MAX_CONCURRENT_POSITIONS = 1       # Strictly 1 active trade at any time across account
 FIXED_LOT_SIZE = 0.01              # Minimum trade lot allowed by broker
+# MT5 magic for MulT / Deep-Sniper orders (filter AI vs legacy history)
+MT5_MAGIC_NUMBER = 20250913
 MIN_WIN_PROBABILITY = 0.75         # LightGBM filter gate
 MAX_SPREAD_RISK_PCT = 0.20         # Reject if spread USD > 20% of dynamic risk budget
 

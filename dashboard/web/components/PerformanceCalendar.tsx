@@ -15,6 +15,9 @@ export type CalendarTrade = {
   symbol?: string
   direction?: string
   side?: string
+  source?: 'ai' | 'legacy' | string
+  magic?: number
+  comment?: string
 }
 
 export type DateRange = { start: string; end: string; label: string }

@@ -15,9 +15,6 @@ from config.settings import (
     LLM_BASE_URL,
     LLM_MODEL,
     MAX_SPREAD_RISK_PCT,
-    RISK_PCT_PER_TRADE,
-    RISK_DOLLARS_FLOOR,
-    RISK_DOLLARS_CEILING,
     SYMBOLS_CONFIG,
 )
 from core.risk.money import price_diff_to_usd, spread_points_to_usd
@@ -25,10 +22,15 @@ from subsystems.research.agent_loop import check_quality
 from subsystems.research.llm_client import LocalLLMClient
 from subsystems.research.store import save_report
 from subsystems.risk_guard.guard_50 import RiskGuard50
+from subsystems.risk_guard.runtime_config import load_risk_config
 
 
 def _rule_checklist() -> List[Dict[str, Any]]:
     checks: List[Dict[str, Any]] = []
+    rcfg = load_risk_config()
+    risk_pct = float(rcfg.risk_pct)
+    floor = float(rcfg.floor)
+    ceiling = float(rcfg.ceiling)
 
     e = price_diff_to_usd("EURUSD", 1.10000, 1.09750, FIXED_LOT_SIZE)
     checks.append(
@@ -88,31 +90,36 @@ def _rule_checklist() -> List[Dict[str, Any]]:
             }
         )
 
+    # Risk SSOT = system_runtime (same as dashboard Risk Lab)
+    expect50 = rcfg.effective_cap(50.0, 1.0) if rcfg.mode == "pct" else float(rcfg.fixed_dollars)
+    expect1200 = rcfg.effective_cap(1200.0, 1.0) if rcfg.mode == "pct" else float(rcfg.fixed_dollars)
+    cap50 = RiskGuard50.compute_max_risk_dollars(50.0, 1.0)
+    cap1200 = RiskGuard50.compute_max_risk_dollars(1200.0, 1.0)
     checks.append(
         {
             "id": "risk_pct_floor_at_50",
-            "ok": abs(RiskGuard50.compute_max_risk_dollars(50.0) - RISK_DOLLARS_FLOOR) < 1e-6,
-            "detail": f"eq=$50 → cap=${RiskGuard50.compute_max_risk_dollars(50.0):.2f} "
-            f"(floor ${RISK_DOLLARS_FLOOR}, pct={RISK_PCT_PER_TRADE})",
+            "ok": abs(cap50 - expect50) < 1e-6,
+            "detail": f"eq=$50 → cap=${cap50:.2f} "
+            f"(mode={rcfg.mode} floor ${floor} pct={risk_pct} expect ${expect50:.2f})",
         }
     )
     checks.append(
         {
             "id": "risk_ceiling_at_1200",
-            "ok": abs(RiskGuard50.compute_max_risk_dollars(1200.0) - RISK_DOLLARS_CEILING) < 1e-6,
-            "detail": f"eq=$1200 → cap=${RiskGuard50.compute_max_risk_dollars(1200.0):.2f} "
-            f"(ceiling ${RISK_DOLLARS_CEILING})",
+            "ok": abs(cap1200 - expect1200) < 1e-6,
+            "detail": f"eq=$1200 → cap=${cap1200:.2f} "
+            f"(mode={rcfg.mode} ceiling ${ceiling} expect ${expect1200:.2f})",
         }
     )
     checks.append(
         {
             "id": "risk_bounds_sane",
             "ok": (
-                0 < RISK_PCT_PER_TRADE <= 0.02
-                and RISK_DOLLARS_FLOOR > 0
-                and RISK_DOLLARS_CEILING >= RISK_DOLLARS_FLOOR
+                (rcfg.mode == "fixed" and rcfg.fixed_dollars > 0)
+                or (0 < risk_pct <= 0.02 and floor > 0 and ceiling >= floor)
             ),
-            "detail": f"pct={RISK_PCT_PER_TRADE} floor={RISK_DOLLARS_FLOOR} ceiling={RISK_DOLLARS_CEILING}",
+            "detail": f"mode={rcfg.mode} pct={risk_pct} floor={floor} ceiling={ceiling} "
+            f"fixed=${rcfg.fixed_dollars}",
         }
     )
     return checks
@@ -153,14 +160,18 @@ def run_calculation_audit(
     with_web: bool = False,
 ) -> Dict[str, Any]:
     checks = _rule_checklist()
+    rcfg = load_risk_config()
+    risk_pct = float(rcfg.risk_pct)
+    floor = float(rcfg.floor)
+    ceiling = float(rcfg.ceiling)
     proposals = _proposals_from_checks(checks)
     passed = sum(1 for c in checks if c["ok"])
     all_ok = passed == len(checks)
     mode = "rules_only"
     narrative = (
         f"Rule-based Calculation Auditor: {passed}/{len(checks)} checks passed. "
-        f"Dynamic risk {RISK_PCT_PER_TRADE*100:.2f}% eq "
-        f"(floor ${RISK_DOLLARS_FLOOR:.2f} / ceiling ${RISK_DOLLARS_CEILING:.2f}) "
+        f"Runtime risk mode={rcfg.mode} {risk_pct*100:.2f}% eq "
+        f"(floor ${floor:.2f} / ceiling ${ceiling:.2f}) "
         f"@ {FIXED_LOT_SIZE} lot. "
         "No configuration files were modified."
     )

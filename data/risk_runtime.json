@@ -1,8 +1,8 @@
 {
-  "mode": "fixed",
+  "mode": "pct",
   "risk_pct": 0.005,
   "floor": 1.0,
   "ceiling": 5.0,
-  "fixed_dollars": 10.0,
-  "updated_at": 1789295816.9080567
+  "fixed_dollars": 2.5,
+  "updated_at": 1789294896.1949022
 }

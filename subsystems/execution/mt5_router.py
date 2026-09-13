@@ -12,14 +12,15 @@ from loguru import logger
 from config.settings import (
     SYMBOLS_CONFIG,
     TOPIC_EXECUTION,
-    FIXED_LOT_SIZE
+    FIXED_LOT_SIZE,
+    MT5_MAGIC_NUMBER,
 )
 from core.bus.events import TradeTicketEvent, ExecutionEvent, OrderDirection
 from core.bus.zmq_bus import ZMQPublisher
 from core.memory.duckdb_manager import DuckDBManager
 from core.risk.money import pnl_to_usd, trailing_offset_price
 
-MAGIC_NUMBER = 20250913
+MAGIC_NUMBER = MT5_MAGIC_NUMBER
 
 
 def _runtime_lot() -> float:

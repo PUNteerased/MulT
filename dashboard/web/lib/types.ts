@@ -150,6 +150,8 @@ export interface PortfolioClosedTrade {
   entry_time: string
   exit_time: string
   comment?: string
+  magic?: number
+  source?: 'ai' | 'legacy' | string
 }
 
 export interface PortfolioSnapshot {
@@ -165,6 +167,8 @@ export interface PortfolioSnapshot {
   source: string
   server?: string
   login?: number | string
+  trade_counts?: { all?: number; ai?: number; legacy?: number }
+  ai_magic?: number
 }
 
 export interface ResearchReportRow {

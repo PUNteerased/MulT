@@ -173,6 +173,35 @@ function Header({
   )
 }
 
+function niceAxisTicks(values: number[], count = 4): number[] {
+  if (!values.length) return [50, 25, 0]
+  let lo = Math.min(...values)
+  let hi = Math.max(...values)
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [50, 25, 0]
+  if (Math.abs(hi - lo) < 1e-9) {
+    const pad = Math.max(Math.abs(hi) * 0.05, 1)
+    lo -= pad
+    hi += pad
+  }
+  const span = hi - lo
+  const raw = span / Math.max(count - 1, 1)
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)))
+  let step = pow
+  for (const m of [1, 2, 2.5, 5, 10]) {
+    if (m * pow >= raw) {
+      step = m * pow
+      break
+    }
+  }
+  const niceMin = Math.floor(lo / step) * step
+  const ticks: number[] = []
+  for (let v = niceMin; v <= hi + step * 0.01; v += step) {
+    ticks.push(Number(v.toFixed(6)))
+    if (ticks.length > 8) break
+  }
+  return ticks.length ? [...ticks].reverse() : [hi, lo]
+}
+
 function EquityChart({
   values,
   stroke = '#67e8f9',
@@ -192,16 +221,14 @@ function EquityChart({
   }
   const line = equityPath(values, 720, 260)
   const area = `${line} V260 H0Z`
-  const hi = Math.max(...values, 50)
-  const lo = Math.min(...values, 50)
+  const ticks = niceAxisTicks(values, 4)
   return (
     <>
       <div className="chart-wrap">
         <div className="chart-y">
-          <span>{hi.toFixed(0)}</span>
-          <span>{((hi + lo) / 2).toFixed(0)}</span>
-          <span>{lo.toFixed(0)}</span>
-          <span>{Math.max(lo - 2, 0).toFixed(0)}</span>
+          {ticks.map((t) => (
+            <span key={t}>{Number.isInteger(t) ? String(t) : t.toFixed(1)}</span>
+          ))}
         </div>
         <svg className="area-chart" viewBox="0 0 720 260" preserveAspectRatio="none" aria-label="Equity curve">
           <defs>
@@ -354,7 +381,7 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
       value: live.status?.risk?.cooldown ? 'COOLDOWN' : 'ARMED',
       note: live.status?.risk?.cooldown
         ? `Armed ${formatUsd(riskCap)} · entries blocked`
-        : `Max ${formatUsd(riskCap)} · ${(((live.status?.risk?.risk_pct ?? live.status?.risk?.pct ?? 0.005) * 100)).toFixed(2)}% eq`,
+        : `Max ${formatUsd(riskCap)} · ${live.status?.risk?.label || `${(((live.status?.risk?.risk_pct ?? live.status?.risk?.pct ?? 0.005) * 100)).toFixed(2)}% eq`} · floor ${formatUsd(live.status?.risk?.floor ?? 1)}–${formatUsd(live.status?.risk?.ceiling ?? 5)}`,
       icon: ShieldCheck,
       tone: live.status?.risk?.cooldown ? 'rose' : 'amber',
     },
@@ -410,7 +437,7 @@ function Overview({ live, onOpenRiskLab }: { live: LiveDashboardApi; onOpenRiskL
             {[
               ['MT5 account feed', live.account?.connected ? 'Connected' : 'Offline', live.account?.connected ? 'green' : 'rose', Wifi],
               ['MulT orchestrator', live.connected ? 'Streaming' : 'Disconnected', live.connected ? 'cyan' : 'rose', Zap],
-              ['DuckDB journal', `${live.trades.length} trades`, 'green', Database],
+              ['DuckDB AI journal', `${live.trades.length} AI trades`, 'green', Database],
               ['ZeroMQ bridge', live.connected ? 'Subscribed' : 'Idle', live.connected ? 'violet' : 'amber', Network],
               ['Risk guard', live.status?.risk?.cooldown ? 'COOLDOWN' : `Armed ${formatUsd(riskCap)}`, live.status?.risk?.cooldown ? 'rose' : 'amber', LockKeyhole],
             ].map(([name, status, tone, Icon]) => (
@@ -610,28 +637,73 @@ function Hardware({ live }: { live: LiveDashboardApi }) {
   )
 }
 
+function tradeSource(t: CalendarTrade): 'ai' | 'legacy' {
+  if (t.source === 'ai' || t.source === 'legacy') return t.source
+  if (Number(t.magic) === 20250913 || String(t.comment || '').startsWith('DS_')) return 'ai'
+  return 'legacy'
+}
+
 function TradesPanel({ live }: { live: LiveDashboardApi }) {
   const closed = (live.portfolio?.closed_trades || live.trades || []) as CalendarTrade[]
   const open = live.account?.active_positions || []
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedRange, setSelectedRange] = useState<DateRange | null>(null)
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'ai' | 'legacy'>('all')
   const initial = live.portfolio?.initial_balance ?? 50
+  const counts = live.portfolio?.trade_counts || {
+    all: closed.length,
+    ai: closed.filter((t) => tradeSource(t) === 'ai').length,
+    legacy: closed.filter((t) => tradeSource(t) === 'legacy').length,
+  }
+
+  const bySource =
+    sourceFilter === 'all' ? closed : closed.filter((t) => tradeSource(t) === sourceFilter)
 
   const filtered = selectedDay
-    ? closed.filter((t) => tradeDayKey(t) === selectedDay)
+    ? bySource.filter((t) => tradeDayKey(t) === selectedDay)
     : selectedRange
-      ? closed.filter((t) => tradeInRange(t, selectedRange))
-      : closed
+      ? bySource.filter((t) => tradeInRange(t, selectedRange))
+      : bySource
 
   const journalTitle = selectedDay
     ? `Trades on ${selectedDay}`
     : selectedRange
       ? `${selectedRange.label} · ${selectedRange.start} → ${selectedRange.end}`
-      : 'Closed / logged trades'
+      : sourceFilter === 'ai'
+        ? 'AI system trades'
+        : sourceFilter === 'legacy'
+          ? 'Legacy (manual) MT5 trades'
+          : 'Closed / logged trades'
 
   return (
     <>
       <Header title="Trades" clock={live.clock} connected={live.connected} />
+      <section className="panel" style={{ marginBottom: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">DATA SOURCE</p>
+            <h2>Separate AI journal from broker history</h2>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 11 }}>
+              DuckDB AI journal: {live.trades.length} · MT5 closed: {counts.all ?? closed.length} (
+              {counts.ai ?? 0} AI / {counts.legacy ?? 0} legacy)
+            </p>
+          </div>
+        </div>
+        <div className="settings-tabs" style={{ marginBottom: 0 }}>
+          {(
+            [
+              ['all', `All MT5 (${counts.all ?? closed.length})`],
+              ['ai', `AI system (${counts.ai ?? 0})`],
+              ['legacy', `Legacy manual (${counts.legacy ?? 0})`],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} type="button" className={sourceFilter === id ? 'active' : ''} onClick={() => setSourceFilter(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="panel table-panel">
         <div className="panel-title">
           <div>
@@ -645,7 +717,7 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
 
       <div style={{ marginTop: 15 }}>
         <PerformanceCalendar
-          trades={closed}
+          trades={bySource}
           initialBalance={initial}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
@@ -684,6 +756,7 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
                 <th>Time</th>
                 <th>Symbol</th>
                 <th>Side</th>
+                <th>Source</th>
                 <th>PnL</th>
                 <th>Note</th>
               </tr>
@@ -698,19 +771,28 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
                       direction: '—',
                       pnl: 0,
                       comment: selectedDay || selectedRange ? 'No trades in this period' : 'No trades yet',
+                      source: 'legacy',
                     },
                   ]
-              ).map((t, i) => (
-                <tr key={String((t as CalendarTrade & { ticket?: string; id?: string }).id || (t as { ticket?: string }).ticket || i)}>
-                  <td className="mono">{String(t.time || t.closed_at || t.exit_time || '—')}</td>
-                  <td className="mono">{String(t.symbol || '—')}</td>
-                  <td>{String(t.direction || t.side || '—')}</td>
-                  <td className={Number(t.pnl ?? t.profit ?? 0) >= 0 ? 'text-green' : 'text-rose'}>
-                    {formatUsd(Number(t.pnl ?? t.profit ?? 0))}
-                  </td>
-                  <td className="muted">{String((t as { comment?: string; note?: string }).comment || (t as { note?: string }).note || '')}</td>
-                </tr>
-              ))}
+              ).map((t, i) => {
+                const src = tradeSource(t as CalendarTrade)
+                return (
+                  <tr key={String((t as CalendarTrade & { ticket?: string; id?: string }).id || (t as { ticket?: string }).ticket || i)}>
+                    <td className="mono">{String(t.time || t.closed_at || t.exit_time || '—')}</td>
+                    <td className="mono">{String(t.symbol || '—')}</td>
+                    <td>{String(t.direction || t.side || '—')}</td>
+                    <td>
+                      <span className={`badge ${src === 'ai' ? 'cyan' : 'amber'}`}>
+                        {src === 'ai' ? 'AI system' : 'Legacy'}
+                      </span>
+                    </td>
+                    <td className={Number(t.pnl ?? t.profit ?? 0) >= 0 ? 'text-green' : 'text-rose'}>
+                      {formatUsd(Number(t.pnl ?? t.profit ?? 0))}
+                    </td>
+                    <td className="muted">{String(t.comment || '')}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

@@ -49,6 +49,8 @@ def check_quality(
     findings: List[Any],
     require_citations: bool = True,
     search_failed: bool = False,
+    summary: str = "",
+    narrative: str = "",
 ) -> str:
     """
     Return status_hint: 'proposed' | 'needs_review'.
@@ -63,8 +65,25 @@ def check_quality(
     if require_citations and not findings:
         return "needs_review"
     if not require_citations and not findings:
-        # Still flag empty findings when caller expected rule outputs
         return "needs_review"
+
+    blob = f"{summary or ''}\n{narrative or ''}".lower()
+    irrelevance_markers = (
+        "no direct relevance",
+        "not directly relevant",
+        "not related",
+        "unrelated to",
+        "unable to find",
+        "no relevant",
+        "nothing relevant",
+        "no trading relevance",
+        "not about trading",
+        "focus on meta platforms",  # common off-topic DDG hit
+        "social media ecosystem",
+    )
+    if any(m in blob for m in irrelevance_markers):
+        return "needs_review"
+
     return "proposed"
 
 
@@ -275,6 +294,8 @@ def run_research_agent(
         findings=findings,
         require_citations=require_citations,
         search_failed=search_failed and require_citations,
+        summary=summary,
+        narrative=narrative,
     )
 
     logger.info(
