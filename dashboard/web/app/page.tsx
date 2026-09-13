@@ -9,6 +9,7 @@ import {
   Bell,
   Cpu,
   Database,
+  FileSearch,
   Gauge,
   LayoutDashboard,
   LockKeyhole,
@@ -654,6 +655,50 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
                     </tr>
                   )
                 })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      <section className="panel table-panel" style={{ marginTop: 15 }}>
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">RESEARCH · CALCULATION AUDITOR</p>
+            <h2>Proposed only · no auto-apply</h2>
+          </div>
+          <span className="badge amber">
+            <FileSearch style={{ width: 12, height: 12, displayInline: true }} /> LM Studio / rules
+          </span>
+        </div>
+        {!live.researchReports?.length ? (
+          <div className="muted" style={{ padding: '18px 10px', fontSize: 12 }}>
+            No auditor reports yet. On the laptop run{' '}
+            <span className="mono text-cyan">python -m subsystems.research.run_auditor</span> when trading GPU is unloaded.
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Mode</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {live.researchReports.slice(0, 20).map((r) => (
+                  <tr key={r.report_id}>
+                    <td className="mono">{r.report_id}</td>
+                    <td>
+                      <span className="badge amber">{r.status || 'proposed'}</span>
+                    </td>
+                    <td className="mono muted">{r.mode || '—'}</td>
+                    <td style={{ fontSize: 12, color: 'var(--muted, #94a3b8)' }}>
+                      {(r.summary || '').slice(0, 140) || '—'}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

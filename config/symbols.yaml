@@ -12,6 +12,10 @@ symbols:
     be_trigger_rr: 1.5
     be_lock_pips: 2.0
     trailing_step_pips: 1.5
+    atr_k1: 1.2
+    atr_k2: 0.15
+    atr_timeframe_sl: M15
+    use_atr_sizing: true
 
   USDJPY:
     digits: 3
@@ -26,6 +30,10 @@ symbols:
     be_trigger_rr: 1.5
     be_lock_pips: 2.0
     trailing_step_pips: 1.5
+    atr_k1: 1.2
+    atr_k2: 0.15
+    atr_timeframe_sl: M15
+    use_atr_sizing: true
 
   XAUUSD:
     digits: 2
@@ -40,6 +48,10 @@ symbols:
     be_trigger_rr: 1.5
     be_lock_pips: 2.0
     trailing_step_pips: 2.0
+    atr_k1: 1.2
+    atr_k2: 0.15
+    atr_timeframe_sl: M15
+    use_atr_sizing: true
 
   BTCUSD:
     digits: 2
@@ -54,3 +66,7 @@ symbols:
     be_trigger_rr: 1.5
     be_lock_pips: 5.0
     trailing_step_pips: 10.0
+    atr_k1: 1.2
+    atr_k2: 0.15
+    atr_timeframe_sl: M15
+    use_atr_sizing: true

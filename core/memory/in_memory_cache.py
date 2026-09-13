@@ -86,6 +86,23 @@ class MarketMemoryCache:
             }
             return pd.DataFrame(data)
 
+    def get_m15_dataframe(self, symbol: str, count: int = 60) -> Optional[pd.DataFrame]:
+        with self._data_lock:
+            dq = self._m15_bars.get(symbol)
+            if not dq or len(dq) == 0:
+                return None
+            bars = list(dq)[-count:]
+            data = {
+                "time": [b.time for b in bars],
+                "open": [b.open for b in bars],
+                "high": [b.high for b in bars],
+                "low": [b.low for b in bars],
+                "close": [b.close for b in bars],
+                "tick_volume": [b.tick_volume for b in bars],
+                "spread": [b.spread for b in bars],
+            }
+            return pd.DataFrame(data)
+
     def get_bars(self, symbol: str, timeframe: str, count: int = 50) -> List[BarEvent]:
         with self._data_lock:
             if timeframe == "M1":

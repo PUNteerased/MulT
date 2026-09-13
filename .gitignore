@@ -32,6 +32,11 @@ Thumbs.db
 # Temp extracts
 _v0_extract/
 D:/Temp/
+docs.zip
+
+# Generated local reports (optional samples may be committed separately)
+data/validation_reports/
+data/research_reports/
 
 # Secrets
 *.pem

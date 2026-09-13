@@ -34,7 +34,7 @@ def test_risk_guard_50_dollar_rule():
         account_equity=50.0, win_prob=0.80
     )
     assert ok is False
-    assert "Risk exceeds limit" in reason
+    assert ("Risk exceeds limit" in reason) or ("cannot fit under $2.50" in reason)
 
     # 3. XAUUSD Valid ($2.00 move = $2.00 risk)
     gold_valid = TriggerAlertEvent(
@@ -58,7 +58,7 @@ def test_risk_guard_50_dollar_rule():
         account_equity=50.0, win_prob=0.80
     )
     assert ok is False
-    assert "Risk exceeds limit" in reason
+    assert ("Risk exceeds limit" in reason) or ("cannot fit under $2.50" in reason)
 
     # 5. Concurrency Test
     ok, reason, _ = RiskGuard50.evaluate_trigger(
@@ -68,13 +68,32 @@ def test_risk_guard_50_dollar_rule():
     assert ok is False
     assert "Concurrency limit" in reason
 
-    # 6. High Spread Test
+    # 6. High Spread Test (points over max_spread_points)
     ok, reason, _ = RiskGuard50.evaluate_trigger(
         alert=alert_valid, current_spread_points=80, active_positions_count=0,
         account_equity=50.0, win_prob=0.80
     )
     assert ok is False
     assert "Spread too high" in reason
+
+    # 7. Spread-to-risk budget reject (points under max but USD > 20% of $2.50)
+    ok, reason, _ = RiskGuard50.evaluate_trigger(
+        alert=alert_valid, current_spread_points=60, active_positions_count=0,
+        account_equity=50.0, win_prob=0.80
+    )
+    # EURUSD max_spread=50 so 60 already rejected above; use synthetic mid-spread:
+    # 55 points would fail max_spread; use XAU with high points under max but costly
+    gold_spread = TriggerAlertEvent(
+        alert_id="alt_spread", symbol="XAUUSD", direction=OrderDirection.BUY,
+        entry_price=2640.00, wick_sl_price=2638.00, model_confidence=0.85
+    )
+    # 55 points * 0.01 = $0.55 width on 0.01 lot = $0.55 > $0.50 (20% of 2.50)
+    ok, reason, _ = RiskGuard50.evaluate_trigger(
+        alert=gold_spread, current_spread_points=55, active_positions_count=0,
+        account_equity=50.0, win_prob=0.80
+    )
+    assert ok is False
+    assert "Spread risk" in reason
 
 @pytest.mark.asyncio
 async def test_order_router_dry_run_lifecycle():

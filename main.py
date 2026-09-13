@@ -24,6 +24,7 @@ from core.bus.events import TickEvent, BarEvent, SystemState, SystemStateEvent, 
 from core.bus.zmq_bus import ZMQPublisher, ZMQSubscriber
 from core.memory.in_memory_cache import MarketMemoryCache
 from core.memory.duckdb_manager import DuckDBManager
+from core.risk.money import atr_from_ohlc_df
 from subsystems.data_ingestion.mt5_streamer import MT5AsyncStreamer
 from subsystems.macro_sentiment.calendar_crawler import EconomicCalendarCrawler
 from subsystems.macro_sentiment.finbert_engine import FinBERTSentimentEngine
@@ -158,12 +159,19 @@ class DeepSniperOrchestrator:
 
         current_spread_pts = current_tick.spread / (0.00001 if "USD" in alert.symbol else 0.01)
 
+        # ATR(M15) for SL sizing when use_atr_sizing is enabled
+        atr_val = 0.0
+        m15 = self.cache.get_m15_dataframe(alert.symbol, count=40)
+        if m15 is not None:
+            atr_val = atr_from_ohlc_df(m15, period=14)
+
         ok, reason, ticket = self.risk_guard.evaluate_trigger(
             alert=alert,
             current_spread_points=current_spread_pts,
             active_positions_count=active_count,
             account_equity=equity,
-            win_prob=win_prob
+            win_prob=win_prob,
+            atr=atr_val if atr_val > 0 else None,
         )
 
         if not ok or not ticket:

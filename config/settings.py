@@ -23,6 +23,18 @@ MAX_RISK_DOLLARS_PER_TRADE = 2.50  # 5% of $50 hard cap
 MAX_CONCURRENT_POSITIONS = 1       # Strictly 1 active trade at any time across account
 FIXED_LOT_SIZE = 0.01              # Minimum trade lot allowed by broker
 MIN_WIN_PROBABILITY = 0.75         # LightGBM filter gate
+MAX_SPREAD_RISK_PCT = 0.20         # Reject if spread USD > 20% of $2.50 risk budget
+
+# Local LM Studio (free) — Research Calculation Auditor
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:1234/v1")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-8b")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "lm-studio")
+
+# Validation / research artifact dirs
+VALIDATION_REPORTS_DIR = DATA_DIR / "validation_reports"
+RESEARCH_REPORTS_DIR = DATA_DIR / "research_reports"
+for _d in (VALIDATION_REPORTS_DIR, RESEARCH_REPORTS_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
 
 # ZeroMQ Endpoints (In-process localhost IPC)
 ZMQ_PUB_ENDPOINT = "tcp://127.0.0.1:5555"
@@ -70,6 +82,10 @@ class SymbolConfig(BaseModel):
     be_trigger_rr: float = 1.5
     be_lock_pips: float = 2.0
     trailing_step_pips: float = 1.5
+    atr_k1: float = 1.2
+    atr_k2: float = 0.15
+    atr_timeframe_sl: str = "M15"
+    use_atr_sizing: bool = True
 
 def load_symbols_config() -> Dict[str, SymbolConfig]:
     yaml_path = CONFIG_DIR / "symbols.yaml"

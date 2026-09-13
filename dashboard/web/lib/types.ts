@@ -148,6 +148,16 @@ export interface PortfolioSnapshot {
   login?: number | string
 }
 
+export interface ResearchReportRow {
+  report_id: string
+  status: string
+  mode?: string
+  created_at?: number
+  title?: string
+  summary?: string
+  path?: string
+}
+
 export interface DashboardState {
   connected: boolean
   backendUrl: string
@@ -159,6 +169,7 @@ export interface DashboardState {
   analytics: AnalyticsReport | null
   trades: TradeLog[]
   portfolio: PortfolioSnapshot | null
+  researchReports: ResearchReportRow[]
   events: LiveEvent[]
   prices: Record<string, number>
   lastHeartbeatMs: number

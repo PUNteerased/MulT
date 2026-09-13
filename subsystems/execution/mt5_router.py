@@ -17,8 +17,8 @@ from config.settings import (
 from core.bus.events import TradeTicketEvent, ExecutionEvent, OrderDirection
 from core.bus.zmq_bus import ZMQPublisher
 from core.memory.duckdb_manager import DuckDBManager
+from core.risk.money import pnl_to_usd, trailing_offset_price
 
-MAGIC_NUMBER = 508845
 
 class MT5OrderRouter:
     """Non-blocking MT5 order execution and trailing stop manager."""
@@ -82,6 +82,11 @@ class MT5OrderRouter:
                     "tp_target_price": ticket.tp_target_price,
                     "be_applied": False,
                     "entry_time": time.time(),
+                    "atr_at_entry": getattr(ticket, "atr_at_entry", 0.0),
+                    "sl_usd": getattr(ticket, "sl_usd", ticket.risk_dollars),
+                    "spread_usd": getattr(ticket, "spread_usd", 0.0),
+                    "atr_k1": getattr(ticket, "atr_k1", 1.2),
+                    "atr_k2": getattr(ticket, "atr_k2", 0.15),
                 }
                 return 999999
 
@@ -134,6 +139,11 @@ class MT5OrderRouter:
                 "tp_target_price": ticket.tp_target_price,
                 "be_applied": False,
                 "entry_time": time.time(),
+                "atr_at_entry": getattr(ticket, "atr_at_entry", 0.0),
+                "sl_usd": getattr(ticket, "sl_usd", ticket.risk_dollars),
+                "spread_usd": getattr(ticket, "spread_usd", 0.0),
+                "atr_k1": getattr(ticket, "atr_k1", 1.2),
+                "atr_k2": getattr(ticket, "atr_k2", 0.15),
             }
 
             logger.info(
@@ -174,6 +184,8 @@ class MT5OrderRouter:
         direction = pos["direction"]
         current_sl = pos["current_sl"]
         pip_dist = cfg.pip_multiplier
+        atr_m1 = float(pos.get("atr_at_entry") or 0.0)
+        trail_off = trailing_offset_price(cfg, atr_m1)
 
         # Check if position was closed externally in MT5
         if not self.dry_run:
@@ -198,7 +210,7 @@ class MT5OrderRouter:
                 if success:
                     pos["current_sl"] = target_sl
                     pos["be_applied"] = True
-                    logger.info(f"[MT5 Router] BREAK-EVEN LOCKED (+2 pips) for Order #{pos['order_id']} at SL={target_sl}")
+                    logger.info(f"[MT5 Router] BREAK-EVEN LOCKED (ATR/pip offset) for Order #{pos['order_id']} at SL={target_sl}")
                     exec_event = ExecutionEvent(
                         ticket_id=pos["ticket_id"],
                         order_id=pos["order_id"],
@@ -209,7 +221,7 @@ class MT5OrderRouter:
                         initial_sl=pos["initial_sl"],
                         current_sl=target_sl,
                         status="MODIFIED_BE",
-                        comment="Moved to Break-Even + 2 pips"
+                        comment="Moved to Break-Even + ATR/pip offset"
                     )
                     await self.publisher.publish(TOPIC_EXECUTION, exec_event)
 
@@ -217,14 +229,14 @@ class MT5OrderRouter:
         elif pos["be_applied"]:
             trailing_step = cfg.trailing_step_pips * pip_dist
             if direction == OrderDirection.BUY:
-                candidate_sl = round(current_bid - (cfg.be_lock_pips * pip_dist), cfg.digits)
+                candidate_sl = round(current_bid - trail_off, cfg.digits)
                 if candidate_sl > current_sl + (trailing_step * 0.5):
                     success = await self._modify_position_sl(pos["order_id"], sym, candidate_sl, pos["tp_target_price"])
                     if success:
                         pos["current_sl"] = candidate_sl
                         logger.info(f"[MT5 Router] Trailing SL ratcheted to {candidate_sl} on Order #{pos['order_id']}")
             elif direction == OrderDirection.SELL:
-                candidate_sl = round(current_ask + (cfg.be_lock_pips * pip_dist), cfg.digits)
+                candidate_sl = round(current_ask + trail_off, cfg.digits)
                 if candidate_sl < current_sl - (trailing_step * 0.5):
                     success = await self._modify_position_sl(pos["order_id"], sym, candidate_sl, pos["tp_target_price"])
                     if success:
@@ -256,10 +268,13 @@ class MT5OrderRouter:
             return
 
         exit_time = time.time()
-        pnl_points = (exit_price - pos["fill_price"]) if pos["direction"] == OrderDirection.BUY else (pos["fill_price"] - exit_price)
-        cfg = SYMBOLS_CONFIG.get(pos["symbol"])
-        pip_val = cfg.pip_value_usd_per_lot if cfg else 10.0
-        pnl_usd = (pnl_points / (cfg.pip_multiplier if cfg else 0.0001)) * (pip_val / 100.0)
+        pnl_usd = pnl_to_usd(
+            pos["symbol"],
+            pos["fill_price"],
+            exit_price,
+            pos["lot"],
+            pos["direction"],
+        )
 
         trade_log = {
             "ticket_id": pos["ticket_id"],
@@ -273,7 +288,10 @@ class MT5OrderRouter:
             "exit_sl": pos["current_sl"],
             "pnl": round(pnl_usd, 2),
             "status": "CLOSED",
-            "comment": "Hit trailing SL / target",
+            "comment": (
+                f"Hit trailing SL / target | atr={pos.get('atr_at_entry', 0)} "
+                f"sl_usd={pos.get('sl_usd', 0)} k1={pos.get('atr_k1', 1.2)} k2={pos.get('atr_k2', 0.15)}"
+            ),
             "entry_timestamp": pos["entry_time"],
             "exit_timestamp": exit_time,
             "features_json": "{}"

@@ -13,13 +13,18 @@
 | `MAX_RISK_DOLLARS_PER_TRADE = 2.50` | ขาดทุนสูงสุดต่อไม้ = 5% ของ $50 |
 | `FIXED_LOT_SIZE = 0.01` | lot เดียวที่อนุญาต |
 | `MAX_CONCURRENT_POSITIONS = 1` | เปิดได้ทีละ 1 ไม้ทั้งบัญชี |
+| `MAX_SPREAD_RISK_PCT = 0.20` | ปฏิเสธถ้า spread USD > 20% ของงบ $2.50 |
+
+## Money math
+การแปลงราคา → USD รวมศูนย์ที่ [`core/risk/money.py`](../core/risk/money.py) (Risk Guard + MT5 router ใช้ชุดเดียวกัน)
 
 ## กฎที่ตรวจใน `subsystems/risk_guard/guard_50.py`
 1. Lot ต้องเป็น 0.01  
-2. ระยะ SL แปลงเป็นเงินแล้ว ≤ $2.50  
+2. ระยะ SL (wick และ/หรือ ATR k1) แปลงเป็นเงินแล้ว ≤ $2.50  
 3. ไม่มีโพซิชันเปิดอยู่แล้ว  
-4. สเปรดไม่เกินเพดานของสัญลักษณ์  
+4. สเปรดไม่เกินเพดานของสัญลักษณ์ **และ** ไม่เกินงบ spread-to-risk  
 5. ไม่อยู่ช่วง rollover / Red Folder halt  
+6. Ticket log: `atr_at_entry`, `sl_usd`, `spread_usd`, `atr_k1`, `atr_k2`
 
 ## สำคัญ: คนละเรื่องกับยอดบน Dashboard
 

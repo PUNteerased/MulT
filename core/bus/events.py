@@ -71,6 +71,11 @@ class TradeTicketEvent(BaseModel):
     tp_target_price: float
     risk_dollars: float
     win_probability: float
+    atr_at_entry: float = 0.0
+    sl_usd: float = 0.0
+    spread_usd: float = 0.0
+    atr_k1: float = 1.2
+    atr_k2: float = 0.15
     created_at: float = Field(default_factory=time.time)
 
 class ExecutionEvent(BaseModel):

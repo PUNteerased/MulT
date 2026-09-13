@@ -18,6 +18,7 @@ import type {
   KillZoneSymbol,
   LiveEvent,
   PortfolioSnapshot,
+  ResearchReportRow,
   StatusResponse,
   TradeLog,
 } from '@/lib/types'
@@ -45,6 +46,7 @@ export function useLiveDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null)
   const [trades, setTrades] = useState<TradeLog[]>([])
   const [portfolio, setPortfolio] = useState<PortfolioSnapshot | null>(null)
+  const [researchReports, setResearchReports] = useState<ResearchReportRow[]>([])
   const [events, setEvents] = useState<LiveEvent[]>([])
   const [prices, setPrices] = useState<Record<string, number>>({})
   const [lastHeartbeatMs, setLastHeartbeatMs] = useState(0)
@@ -62,13 +64,14 @@ export function useLiveDashboard() {
 
   const refreshRest = useCallback(async (base: string) => {
     if (!base) return
-    const [st, kz, tr, an, tel, pf] = await Promise.all([
+    const [st, kz, tr, an, tel, pf, research] = await Promise.all([
       apiGet<StatusResponse>(base, '/api/status'),
       apiGet<Record<string, KillZoneSymbol>>(base, '/api/kill-zones'),
       apiGet<{ trades: TradeLog[] } | TradeLog[]>(base, '/api/trades?limit=50'),
       apiGet<AnalyticsReport>(base, '/api/analytics'),
       apiGet<{ hardware: HardwareSnapshot; account: AccountSnapshot; mt5?: unknown }>(base, '/api/telemetry'),
       apiGet<PortfolioSnapshot>(base, '/api/portfolio?days=180'),
+      apiGet<{ reports: ResearchReportRow[] }>(base, '/api/research/reports?limit=20'),
     ])
 
     if (st) {
@@ -94,6 +97,8 @@ export function useLiveDashboard() {
       if (tel.account) setAccount(tel.account)
     }
     if (pf) setPortfolio(pf)
+    if (research?.reports) setResearchReports(research.reports)
+    else setResearchReports([])
   }, [])
 
   const connectWs = useCallback(
@@ -266,6 +271,7 @@ export function useLiveDashboard() {
       analytics,
       trades,
       portfolio,
+      researchReports,
       events,
       prices,
       lastHeartbeatMs,
@@ -281,6 +287,7 @@ export function useLiveDashboard() {
       analytics,
       trades,
       portfolio,
+      researchReports,
       events,
       prices,
       lastHeartbeatMs,

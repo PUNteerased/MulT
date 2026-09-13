@@ -305,6 +305,35 @@
       </div>
     </section>
 
+    <!-- 6b. Research Calculation Auditor (read-only proposals) -->
+    <section class="glass-panel p-4">
+      <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Research — Calculation Auditor</span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">PROPOSED ONLY</span>
+        </div>
+        <span class="text-[11px] text-slate-500 font-mono">LM Studio qwen/qwen3-8b · no auto-apply</span>
+      </div>
+      <p class="text-[11px] text-slate-500 mb-3">
+        Human-gated money/ATR audit reports. Run <code class="text-cyan-400">python -m subsystems.research.run_auditor</code> when trading GPU is unloaded.
+      </p>
+      <div class="overflow-x-auto max-h-56">
+        <table class="w-full text-left">
+          <thead>
+            <tr class="text-[11px] font-semibold text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+              <th class="py-2 px-3">ID</th>
+              <th class="py-2 px-3">Status</th>
+              <th class="py-2 px-3">Mode</th>
+              <th class="py-2 px-3">Summary</th>
+            </tr>
+          </thead>
+          <tbody id="researchReportsBody">
+            <tr><td colspan="4" class="py-4 px-3 text-xs text-slate-500">Loading research reports…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- 6. Historical Trades & Real-time Activity Log -->
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Trade History Table (2 cols) -->

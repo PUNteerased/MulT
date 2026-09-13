@@ -28,13 +28,17 @@ from config.settings import (
     TOPIC_TRIGGER_ALERT,
     TOPIC_TRADE_TICKET,
     TOPIC_EXECUTION,
-    TOPIC_SYSTEM_STATE
+    TOPIC_SYSTEM_STATE,
+    RESEARCH_REPORTS_DIR,
+    LLM_BASE_URL,
+    LLM_MODEL,
 )
 from core.bus.zmq_bus import ZMQSubscriber
 from core.memory.in_memory_cache import MarketMemoryCache
 from core.memory.duckdb_manager import DuckDBManager
 from subsystems.evolution.performance_audit import PerformanceAuditor
 from subsystems.macro_sentiment.calendar_crawler import EconomicCalendarCrawler
+from subsystems.research.store import list_reports, get_report
 from dashboard.system_telemetry import (
     SystemTelemetryCollector,
     get_mt5_portfolio_history,
@@ -429,6 +433,26 @@ async def get_calendar():
         "events_count": len(calendar_crawler.scheduled_events),
         "scheduled_events": calendar_crawler.scheduled_events[-20:],
     }
+
+
+@app.get("/api/research/reports")
+async def get_research_reports(limit: int = 30):
+    """List Calculation Auditor proposals (read-only; never auto-applied)."""
+    rows = await asyncio.to_thread(list_reports, limit)
+    return {
+        "reports": rows,
+        "dir": str(RESEARCH_REPORTS_DIR),
+        "llm": {"base_url": LLM_BASE_URL, "model": LLM_MODEL},
+        "auto_apply": False,
+    }
+
+
+@app.get("/api/research/reports/{report_id}")
+async def get_research_report(report_id: str):
+    report = await asyncio.to_thread(get_report, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
 
 
 @app.websocket("/ws")

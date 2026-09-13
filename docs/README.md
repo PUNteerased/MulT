@@ -19,14 +19,17 @@
 | [risk-guard.md](risk-guard.md) | กฎเสี่ยง $2.50 / 0.01 lot / 1 ไม้ vs ยอดบัญชีจริง |
 | [execution.md](execution.md) | ส่งออเดอร์ MT5, trailing BE+2 pips |
 | [evolution-audit.md](evolution-audit.md) | Weekend learner, Performance Auditor |
+| [validation.md](validation.md) | Offline pipeline backtest + calibration reports |
+| [research-agent.md](research-agent.md) | Calculation Auditor (LM Studio / rules, no auto-apply) |
 | [dashboard.md](dashboard.md) | v0 UI, FastAPI, `/api/portfolio`, Vercel, tunnel |
 
 ## สิ่งที่เปลี่ยนล่าสุด (สรุป)
 
-1. **Portfolio จริงจาก MT5** — `GET /api/portfolio` ใช้ `history_deals_get` คำนวณยอดตั้งต้นจากเงินฝาก, equity curve, closed trades, WR/PF  
-2. **เวลาไทย (ICT)** — นาฬิกา UI, event feed, เวลาปิดไม้ ใช้ `Asia/Bangkok` ไม่ใช้ UTC  
-3. **MulT Ops Console (v0)** — Next.js ที่ `dashboard/web/` export static ไป `dashboard/vercel/`  
-4. **GitHub** — โค้ดขึ้น [PUNteerased/MulT](https://github.com/PUNteerased/MulT) แล้ว ผูก Vercel ได้จาก Root Directory `dashboard/vercel`
+1. **Unified money math** — `core/risk/money.py` + ATR k1/k2 SL/BE/trail + spread-to-risk reject  
+2. **Offline validation** — `python -m subsystems.validation.run_backtest` → `data/validation_reports/`  
+3. **Research Auditor (free local)** — LM Studio `qwen/qwen3-8b` @ `127.0.0.1:1234` หรือ rules-only → `data/research_reports/` (`proposed` only)  
+4. **Portfolio จริงจาก MT5** — `GET /api/portfolio` + ICT timezone  
+5. **MulT Ops Console (v0)** — `dashboard/web/` → `dashboard/vercel/`
 
 ## วิธีรันแบบย่อ
 

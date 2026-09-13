@@ -89,6 +89,7 @@ class DashboardApp {
 
       // Trades Table
       tradesTableBody: document.getElementById('tradesTableBody'),
+      researchReportsBody: document.getElementById('researchReportsBody'),
 
       // Config Modal
       configModal: document.getElementById('configModal'),
@@ -146,11 +147,12 @@ class DashboardApp {
 
   async loadInitialData() {
     try {
-      const [statusRes, zonesRes, tradesRes, analyticsRes] = await Promise.all([
+      const [statusRes, zonesRes, tradesRes, analyticsRes, researchRes] = await Promise.all([
         fetch(this.getApiUrl('/api/status')).catch(() => null),
         fetch(this.getApiUrl('/api/kill-zones')).catch(() => null),
         fetch(this.getApiUrl('/api/trades?limit=25')).catch(() => null),
         fetch(this.getApiUrl('/api/analytics')).catch(() => null),
+        fetch(this.getApiUrl('/api/research/reports?limit=20')).catch(() => null),
       ]);
 
       if (statusRes && statusRes.ok) {
@@ -174,6 +176,13 @@ class DashboardApp {
       if (analyticsRes && analyticsRes.ok) {
         const analyticsData = await analyticsRes.json();
         this.updateAnalytics(analyticsData);
+      }
+
+      if (researchRes && researchRes.ok) {
+        const researchData = await researchRes.json();
+        this.renderResearchReports(researchData.reports || []);
+      } else {
+        this.renderResearchReports([]);
       }
     } catch (e) {
       console.warn('Initial data load error:', e);
@@ -598,6 +607,35 @@ class DashboardApp {
         <td class="py-2.5 px-3 text-slate-400 text-[11px]">${dateStr}</td>
       `;
       this.el.tradesTableBody.appendChild(tr);
+    });
+  }
+
+  renderResearchReports(reports) {
+    const body = this.el.researchReportsBody;
+    if (!body) return;
+    body.innerHTML = '';
+    if (!reports.length) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="4" class="text-center py-6 text-slate-500 text-xs">
+            No auditor reports yet. Run <span class="text-cyan-400 font-mono">python -m subsystems.research.run_auditor</span>
+          </td>
+        </tr>`;
+      return;
+    }
+    reports.forEach((r) => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-slate-800/80 hover:bg-slate-800/30 text-xs';
+      const summary = (r.summary || '').replace(/</g, '&lt;').slice(0, 160);
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 font-mono text-slate-300">${r.report_id || '--'}</td>
+        <td class="py-2.5 px-3">
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300">${r.status || 'proposed'}</span>
+        </td>
+        <td class="py-2.5 px-3 font-mono text-slate-400">${r.mode || '--'}</td>
+        <td class="py-2.5 px-3 text-slate-400">${summary || '—'}</td>
+      `;
+      body.appendChild(tr);
     });
   }
 
