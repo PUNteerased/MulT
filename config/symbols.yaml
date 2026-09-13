@@ -1,0 +1,56 @@
+symbols:
+  EURUSD:
+    digits: 5
+    point: 0.00001
+    contract_size: 100000.0
+    pip_value_usd_per_lot: 10.0
+    pip_multiplier: 0.0001
+    min_lot: 0.01
+    max_lot: 0.01
+    max_spread_points: 50
+    max_sl_points: 250
+    be_trigger_rr: 1.5
+    be_lock_pips: 2.0
+    trailing_step_pips: 1.5
+
+  USDJPY:
+    digits: 3
+    point: 0.001
+    contract_size: 100000.0
+    pip_value_usd_per_lot: 6.80
+    pip_multiplier: 0.01
+    min_lot: 0.01
+    max_lot: 0.01
+    max_spread_points: 50
+    max_sl_points: 350
+    be_trigger_rr: 1.5
+    be_lock_pips: 2.0
+    trailing_step_pips: 1.5
+
+  XAUUSD:
+    digits: 2
+    point: 0.01
+    contract_size: 100.0
+    pip_value_usd_per_lot: 100.0
+    pip_multiplier: 0.10
+    min_lot: 0.01
+    max_lot: 0.01
+    max_spread_points: 60
+    max_sl_points: 250
+    be_trigger_rr: 1.5
+    be_lock_pips: 2.0
+    trailing_step_pips: 2.0
+
+  BTCUSD:
+    digits: 2
+    point: 0.01
+    contract_size: 1.0
+    pip_value_usd_per_lot: 1.0
+    pip_multiplier: 1.0
+    min_lot: 0.01
+    max_lot: 0.01
+    max_spread_points: 3500
+    max_sl_points: 25000
+    be_trigger_rr: 1.5
+    be_lock_pips: 5.0
+    trailing_step_pips: 10.0

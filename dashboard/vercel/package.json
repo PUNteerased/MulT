@@ -1,0 +1,8 @@
+{
+  "name": "deep-sniper-dashboard",
+  "version": "1.0.0",
+  "description": "Deep-Sniper AI $50 Micro Account Web Dashboard",
+  "scripts": {
+    "deploy": "vercel --prod"
+  }
+}
