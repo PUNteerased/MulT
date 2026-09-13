@@ -1,0 +1,72 @@
+{
+  "version_id": "20260913_123352_24170a",
+  "role": "challenger",
+  "train_ts": 1789302832.1693342,
+  "feature_names": [
+    "model_confidence",
+    "vol_ratio",
+    "body_ratio",
+    "upper_wick_ratio",
+    "lower_wick_ratio",
+    "rsi",
+    "atr",
+    "z_score",
+    "dist_ema20",
+    "dist_ema50",
+    "spread_ratio",
+    "sentiment_score",
+    "regime_state"
+  ],
+  "feature_hash": "af30f91ac23d3802",
+  "metrics": {
+    "n": 1,
+    "expectancy": 0.0,
+    "source": "insufficient_oof",
+    "drift": {
+      "breached": false,
+      "reason": "no_snapshot"
+    }
+  },
+  "parent": "20260913_123330_5d340b",
+  "feature_snapshot": {
+    "model_confidence": [
+      0.5065927505493164
+    ],
+    "vol_ratio": [
+      2.6600000858306885
+    ],
+    "body_ratio": [
+      0.30000001192092896
+    ],
+    "upper_wick_ratio": [
+      0.10000000149011612
+    ],
+    "lower_wick_ratio": [
+      0.6000000238418579
+    ],
+    "rsi": [
+      0.0
+    ],
+    "atr": [
+      0.0010285713942721486
+    ],
+    "z_score": [
+      -4.248487949371338
+    ],
+    "dist_ema20": [
+      -0.43938761949539185
+    ],
+    "dist_ema50": [
+      -0.46659430861473083
+    ],
+    "spread_ratio": [
+      9712.779296875
+    ],
+    "sentiment_score": [
+      0.0
+    ],
+    "regime_state": [
+      0.0
+    ]
+  }
+}

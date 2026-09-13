@@ -93,6 +93,24 @@ class DuckDBManager:
             );
         """)
 
+        # Shadow / filtered signals for self-learning (rejects + passes + challenger scores)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS shadow_signals (
+                signal_id VARCHAR PRIMARY KEY,
+                ts DOUBLE,
+                symbol VARCHAR,
+                direction VARCHAR,
+                gate VARCHAR,
+                win_prob DOUBLE,
+                challenger_win_prob DOUBLE,
+                features_json VARCHAR,
+                reason VARCHAR,
+                alert_id VARCHAR,
+                shadow_pnl DOUBLE,
+                resolved INTEGER DEFAULT 0
+            );
+        """)
+
     def insert_bar(self, bar: BarEvent):
         """Insert or replace single M1 bar."""
         if bar.timeframe != "M1":
@@ -175,14 +193,65 @@ class DuckDBManager:
         self._ensure_conn()
         return self.conn.execute("SELECT * FROM trade_logs ORDER BY entry_timestamp DESC;").df()
 
+    def log_shadow_signal(self, signal: Dict[str, Any]) -> None:
+        """Persist a filtered or passed signal for shadow / drift / expectancy analysis."""
+        import time as _time
+        import uuid as _uuid
+
+        self._ensure_conn()
+        try:
+            self.conn.execute("SELECT 1 FROM shadow_signals LIMIT 1")
+        except Exception:
+            self._create_tables()
+        sid = signal.get("signal_id") or f"SHD_{_uuid.uuid4().hex[:10].upper()}"
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO shadow_signals
+            (signal_id, ts, symbol, direction, gate, win_prob, challenger_win_prob,
+             features_json, reason, alert_id, shadow_pnl, resolved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            [
+                sid,
+                float(signal.get("ts") or _time.time()),
+                signal.get("symbol", ""),
+                str(signal.get("direction", "")),
+                signal.get("gate", "unknown"),
+                float(signal.get("win_prob") or 0.0),
+                float(signal.get("challenger_win_prob") or 0.0)
+                if signal.get("challenger_win_prob") is not None
+                else None,
+                signal.get("features_json", "{}"),
+                signal.get("reason", ""),
+                signal.get("alert_id", ""),
+                signal.get("shadow_pnl"),
+                int(signal.get("resolved", 0)),
+            ],
+        )
+
+    def get_shadow_signals(self, limit: int = 5000) -> pd.DataFrame:
+        """Fetch recent shadow signals."""
+        self._ensure_conn()
+        return self.conn.execute(
+            "SELECT * FROM shadow_signals ORDER BY ts DESC LIMIT ?;",
+            [int(limit)],
+        ).df()
+
     def export_to_parquet(self, output_dir: Optional[str] = None):
         """Export DuckDB tables to Parquet files for training."""
         self._ensure_conn()
         target_dir = Path(output_dir or DATA_DIR)
         m1_parquet = target_dir / "bars_m1.parquet"
         trades_parquet = target_dir / "trades.parquet"
+        shadow_parquet = target_dir / "shadow_signals.parquet"
         self.conn.execute(f"COPY bars_m1 TO '{m1_parquet.as_posix()}' (FORMAT PARQUET);")
         self.conn.execute(f"COPY trade_logs TO '{trades_parquet.as_posix()}' (FORMAT PARQUET);")
+        try:
+            self.conn.execute(
+                f"COPY shadow_signals TO '{shadow_parquet.as_posix()}' (FORMAT PARQUET);"
+            )
+        except Exception as e:
+            logger.debug(f"[DuckDB] shadow parquet skip: {e}")
         logger.info(f"[DuckDB] Parquet exported to {target_dir}")
 
     def close(self):

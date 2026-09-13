@@ -99,6 +99,8 @@ class MT5OrderRouter:
                     "spread_usd": getattr(ticket, "spread_usd", 0.0),
                     "atr_k1": getattr(ticket, "atr_k1", 1.2),
                     "atr_k2": getattr(ticket, "atr_k2", 0.15),
+                    "features_json": getattr(ticket, "features_json", "{}"),
+                    "alert_id": getattr(ticket, "alert_id", None),
                 }
                 return 999999
 
@@ -156,6 +158,8 @@ class MT5OrderRouter:
                 "spread_usd": getattr(ticket, "spread_usd", 0.0),
                 "atr_k1": getattr(ticket, "atr_k1", 1.2),
                 "atr_k2": getattr(ticket, "atr_k2", 0.15),
+                "features_json": getattr(ticket, "features_json", "{}"),
+                "alert_id": getattr(ticket, "alert_id", None),
             }
 
             logger.info(
@@ -306,7 +310,7 @@ class MT5OrderRouter:
             ),
             "entry_timestamp": pos["entry_time"],
             "exit_timestamp": exit_time,
-            "features_json": "{}"
+            "features_json": pos.get("features_json") or "{}",
         }
         self.duckdb.log_trade(trade_log)
         logger.info(f"[MT5 Router] Trade #{pos['order_id']} Closed! Realized PnL: ${pnl_usd:.2f}")

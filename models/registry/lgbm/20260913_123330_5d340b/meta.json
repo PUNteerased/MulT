@@ -1,0 +1,26 @@
+{
+  "version_id": "20260913_123330_5d340b",
+  "role": "champion",
+  "train_ts": 1789302810.528139,
+  "feature_names": [
+    "model_confidence",
+    "vol_ratio",
+    "body_ratio",
+    "upper_wick_ratio",
+    "lower_wick_ratio",
+    "rsi",
+    "atr",
+    "z_score",
+    "dist_ema20",
+    "dist_ema50",
+    "spread_ratio",
+    "sentiment_score",
+    "regime_state"
+  ],
+  "feature_hash": null,
+  "metrics": {
+    "source": "legacy_bootstrap"
+  },
+  "parent": null,
+  "feature_snapshot": {}
+}

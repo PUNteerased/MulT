@@ -26,7 +26,42 @@ class RiskGuard50:
         streak_mult: float = 1.0,
     ) -> float:
         cfg = load_risk_config()
-        return cfg.effective_cap(account_equity, streak_mult)
+        base = cfg.effective_cap(account_equity, streak_mult)
+        # Fractional Kelly as a CAP — never raises risk above the floor/ceiling path
+        try:
+            kelly_frac = float(getattr(cfg, "kelly_fraction", 0.25) or 0.0)
+        except Exception:
+            kelly_frac = 0.25
+        if kelly_frac <= 0:
+            return base
+        kelly_dollars = cls._fractional_kelly_dollars(account_equity, kelly_frac)
+        if kelly_dollars is None:
+            return base
+        capped = min(base, kelly_dollars)
+        return round(max(0.0, capped), 4)
+
+    @classmethod
+    def _fractional_kelly_dollars(cls, equity: float, kelly_fraction: float) -> Optional[float]:
+        """Estimate f* Kelly from recent closed trades; return equity * fraction * f*."""
+        from subsystems.risk_guard.streak import get_recent_closed_pnls
+
+        rows = get_recent_closed_pnls(limit=40)
+        if len(rows) < 10:
+            return None
+        wins = [p for p, _ in rows if p > 0]
+        losses = [abs(p) for p, _ in rows if p < 0]
+        if not wins or not losses:
+            return None
+        wr = len(wins) / len(rows)
+        avg_win = float(sum(wins) / len(wins))
+        avg_loss = float(sum(losses) / len(losses))
+        if avg_loss <= 1e-9:
+            return None
+        b = avg_win / avg_loss
+        full_kelly = wr - (1.0 - wr) / b
+        full_kelly = max(0.0, float(full_kelly))
+        frac = full_kelly * float(kelly_fraction)
+        return float(equity) * frac
 
     @classmethod
     def calculate_risk_dollars(
@@ -191,6 +226,10 @@ class RiskGuard50:
             be_lock = entry - trail_off
             tp_target = entry - (sl_distance * 3.0)
 
+        import json as _json
+
+        features_json = _json.dumps(alert.features or {})
+
         ticket = TradeTicketEvent(
             ticket_id=f"TKT_{uuid.uuid4().hex[:8].upper()}",
             symbol=sym,
@@ -211,6 +250,8 @@ class RiskGuard50:
             risk_cap_usd=round(max_risk, 4),
             risk_pct=float(risk_cfg.risk_pct if risk_cfg.mode == "pct" else 0.0),
             streak_multiplier=float(streak.get("multiplier", 1.0)),
+            features_json=features_json,
+            alert_id=getattr(alert, "alert_id", None),
         )
 
         logger.info(

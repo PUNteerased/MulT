@@ -5,6 +5,7 @@ Manages 4 Layers & 7 Subsystems across EURUSD, USDJPY, XAUUSD, and BTCUSD.
 """
 import asyncio
 import argparse
+import json
 import signal
 import sys
 import time
@@ -36,6 +37,7 @@ from subsystems.risk_guard.guard_50 import RiskGuard50
 from subsystems.execution.mt5_router import MT5OrderRouter
 from subsystems.execution.position_guard import PositionGuard
 from subsystems.evolution.weekend_learner import WeekendSelfEvolutionWorker
+from subsystems.evolution import halt_state
 
 # Configure file logging
 logger.add(LOGS_DIR / "deep_sniper_{time:YYYY-MM-DD}.log", rotation="50 MB", retention="10 days")
@@ -50,7 +52,9 @@ class DeepSniperOrchestrator:
         self.cache = MarketMemoryCache()
         self.duckdb = DuckDBManager()
         self.publisher = ZMQPublisher()
-        self.subscriber = ZMQSubscriber(topics=["market.tick", "market.bar.m1"])
+        self.subscriber = ZMQSubscriber(
+            topics=["market.tick", "market.bar.m1", TOPIC_SYSTEM_STATE]
+        )
 
         # Subsystems
         self.streamer = MT5AsyncStreamer()
@@ -67,7 +71,38 @@ class DeepSniperOrchestrator:
 
         # System State
         self.system_state = SystemState.NORMAL
+        if halt_state.is_halt_locked():
+            self.system_state = SystemState.HALT_TRADING
         self.macro_sentiment_score = 0.0
+        self.regime_by_symbol = {}
+
+    def _log_shadow(
+        self,
+        alert: TriggerAlertEvent,
+        *,
+        gate: str,
+        reason: str,
+        win_prob: float = 0.0,
+        challenger_win_prob: float = None,
+        features: dict = None,
+    ) -> None:
+        feats = features if features is not None else (alert.features or {})
+        try:
+            self.duckdb.log_shadow_signal(
+                {
+                    "symbol": alert.symbol,
+                    "direction": str(alert.direction),
+                    "gate": gate,
+                    "win_prob": float(win_prob or 0.0),
+                    "challenger_win_prob": challenger_win_prob,
+                    "features_json": json.dumps(feats),
+                    "reason": reason,
+                    "alert_id": alert.alert_id,
+                    "ts": time.time(),
+                }
+            )
+        except Exception as e:
+            logger.debug(f"[Shadow] log failed: {e}")
 
     async def start(self):
         """Bootstrap all subsystems and launch event loops."""
@@ -118,13 +153,45 @@ class DeepSniperOrchestrator:
 
     async def _on_bus_message(self, topic: str, payload: dict):
         """Central message handler dispatching events."""
+        if topic == TOPIC_SYSTEM_STATE:
+            try:
+                event = SystemStateEvent(**payload)
+                prev = self.system_state
+                # Human-locked halt cannot be cleared by NORMAL publishes
+                if (
+                    event.state == SystemState.NORMAL
+                    and halt_state.is_halt_locked()
+                ):
+                    try:
+                        from subsystems.config.system_runtime import load_settings
+
+                        if load_settings().risk.halt_requires_human_reset:
+                            logger.warning(
+                                "[Orchestrator] Ignoring NORMAL while halt is human-locked"
+                            )
+                            self.system_state = SystemState.HALT_TRADING
+                            return
+                    except Exception:
+                        self.system_state = SystemState.HALT_TRADING
+                        return
+                self.system_state = event.state
+                if event.state == SystemState.HALT_TRADING:
+                    logger.critical(
+                        f"[Orchestrator] HALT_TRADING from {event.source}: {event.reason}"
+                    )
+                elif prev != event.state:
+                    logger.info(f"[Orchestrator] system_state -> {event.state} ({event.source})")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] bad system.state payload: {e}")
+            return
+
         if topic == TOPIC_TICK:
             tick = TickEvent(**payload)
             # Update live position trailing SL
             await self.order_router.update_active_position_trailing(current_bid=tick.bid, current_ask=tick.ask)
 
             # Check if trading is allowed
-            if self.system_state == SystemState.HALT_TRADING:
+            if self.system_state == SystemState.HALT_TRADING or halt_state.is_halt_locked():
                 return
 
             # Evaluate M1 Sniper trigger if price in Kill Zone
@@ -134,22 +201,49 @@ class DeepSniperOrchestrator:
 
         elif topic == TOPIC_BAR_M1:
             bar = BarEvent(**payload)
-            # Live HMM regime update
+            # Live HMM regime update — cache for meta features
             df = self.cache.get_m1_dataframe(bar.symbol, count=40)
             if df is not None and len(df) >= 30:
                 state, name, conf = self.hmm.predict_regime(df)
+                self.regime_by_symbol[bar.symbol] = {
+                    "state": state,
+                    "name": name,
+                    "conf": conf,
+                }
 
     async def _process_sniper_alert(self, alert: TriggerAlertEvent, current_tick: TickEvent):
         """Full Gate Pipeline: Meta-Labeling -> $50 Risk Guard -> Order Router."""
         logger.info(f"[Pipeline] Processing incoming Sniper Alert: {alert.alert_id}")
 
         # 1. Meta-Labeling Filter (LightGBM)
-        features = alert.features
+        features = dict(alert.features or {})
         features["sentiment_score"] = self.macro_sentiment_score
+        regime = self.regime_by_symbol.get(alert.symbol) or {}
+        features["regime_state"] = float(regime.get("state", 0))
+        alert.features = features
+
         is_approved, win_prob = self.meta_filter.evaluate_features(features)
 
+        # Champion–challenger shadow scoring (challenger never sends live orders)
+        chall_prob = None
+        if self.meta_filter.challenger is not None:
+            try:
+                chall_prob = round(
+                    self.meta_filter.predict_proba(features, use_challenger=True), 3
+                )
+            except Exception as e:
+                logger.debug(f"[Challenger] score failed: {e}")
+
         if not is_approved:
-            logger.info(f"[MetaFilter] Alert {alert.alert_id} REJECTED: Win Prob {win_prob:.2%} < 75%")
+            logger.info(f"[MetaFilter] Alert {alert.alert_id} REJECTED: Win Prob {win_prob:.2%} < threshold")
+            self._log_shadow(
+                alert,
+                gate="meta",
+                reason=f"win_prob={win_prob}",
+                win_prob=win_prob,
+                challenger_win_prob=chall_prob,
+                features=features,
+            )
             return
 
         logger.info(f"[MetaFilter] Alert {alert.alert_id} PASSED: Win Prob {win_prob:.2%}")
@@ -157,6 +251,8 @@ class DeepSniperOrchestrator:
         # 2. $50 Fixed-Point Risk Guard
         active_count = await self.order_router.get_active_positions_count()
         equity = await self.order_router.get_account_equity() if not self.dry_run else 50.0
+        if equity > 0:
+            halt_state.update_equity_peak(equity)
 
         current_spread_pts = current_tick.spread / (0.00001 if "USD" in alert.symbol else 0.01)
 
@@ -177,6 +273,14 @@ class DeepSniperOrchestrator:
 
         if not ok or not ticket:
             logger.warning(f"[RiskGuard50] Alert {alert.alert_id} REJECTED: {reason}")
+            self._log_shadow(
+                alert,
+                gate="risk",
+                reason=str(reason),
+                win_prob=win_prob,
+                challenger_win_prob=chall_prob,
+                features=features,
+            )
             return
 
         # 3. Execution via MT5 Order Router
@@ -184,6 +288,23 @@ class DeepSniperOrchestrator:
         order_id = await self.order_router.send_order(ticket)
         if order_id:
             logger.info(f"🎯 SNIPER TRADE ACTIVE! Order #{order_id} on {ticket.symbol}")
+            self._log_shadow(
+                alert,
+                gate="passed",
+                reason=f"order_id={order_id}",
+                win_prob=win_prob,
+                challenger_win_prob=chall_prob,
+                features=features,
+            )
+        else:
+            self._log_shadow(
+                alert,
+                gate="execution",
+                reason="send_order_failed",
+                win_prob=win_prob,
+                challenger_win_prob=chall_prob,
+                features=features,
+            )
 
     async def _poi_radar_periodic_loop(self):
         """Update Kill Zones every 15 minutes."""
@@ -201,7 +322,7 @@ class DeepSniperOrchestrator:
                 await asyncio.sleep(10)
 
     async def _weekend_evolution_loop(self):
-        """Check for weekend schedule once per hour."""
+        """Check for weekend schedule once per hour; also run PSI drift check."""
         while self.running:
             try:
                 await asyncio.sleep(3600)  # 1 hour
@@ -209,6 +330,14 @@ class DeepSniperOrchestrator:
                     logger.info("[WeekendEvolution] Weekend detected. Starting retraining...")
                     result = self.evolution.run_evolution_cycle()
                     logger.info(f"[WeekendEvolution] Retraining result: {result}")
+                    # Reload challenger into live meta filter
+                    self.meta_filter.reload_challenger()
+                else:
+                    # Mid-week light drift check
+                    drift = self.evolution.run_drift_check()
+                    if drift.get("breached"):
+                        logger.warning(f"[DriftMonitor] mid-week breach: {drift}")
+                        self.evolution._propose_drift_retrain(drift)
             except asyncio.CancelledError:
                 break
             except Exception as e:

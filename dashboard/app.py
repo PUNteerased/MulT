@@ -690,7 +690,28 @@ async def post_research_status(report_id: str, body: ResearchStatusBody):
         raise HTTPException(status_code=400, detail=str(e))
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    return {"ok": True, "report_id": report_id, "status": report.get("status"), "auto_apply": False}
+    return {"ok": True, "report_id": report_id, "status": report.get("status"), "auto_apply": False, "promotion_result": report.get("promotion_result")}
+
+
+class HaltResetBody(BaseModel):
+    note: Opt[str] = "human_reset"
+
+
+@app.get("/api/halt/status")
+async def get_halt_status():
+    from subsystems.evolution import halt_state
+
+    st = halt_state.load_halt_state()
+    return {"ok": True, **st}
+
+
+@app.post("/api/halt/reset")
+async def post_halt_reset(body: HaltResetBody):
+    """Human-only clear of peak-DD / emergency halt lock."""
+    from subsystems.evolution import halt_state
+
+    st = halt_state.human_reset_halt(note=body.note or "human_reset")
+    return {"ok": True, **st}
 
 
 @app.post("/api/research/run")

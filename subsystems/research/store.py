@@ -104,7 +104,10 @@ def update_status(
     note: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Update status only — never mutates trading config files."""
+    """Update status only — never mutates trading config files.
+
+    When a model_challenger report is human-approved, run expectancy gate + promote.
+    """
     if status not in TRANSITION_STATUSES:
         raise ValueError(f"invalid status: {status}")
     report = get_report(report_id)
@@ -118,6 +121,31 @@ def update_status(
     if extra:
         report.update(extra)
     report["auto_apply"] = False
+
+    if status == "approved" and (
+        report.get("kind") == "model_challenger" or report.get("mode") == "model_challenger"
+    ):
+        try:
+            from subsystems.evolution.weekend_learner import try_promote_from_research
+
+            promo = try_promote_from_research(report)
+            report["promotion_result"] = promo
+            if promo.get("ok"):
+                report["status"] = "backtested"
+                report.setdefault("status_history", []).append(
+                    {
+                        "status": "backtested",
+                        "note": f"promoted:{promo.get('promoted_version')}",
+                        "at": time.time(),
+                    }
+                )
+            else:
+                # Stay approved but not promoted — human can inspect promotion_result
+                logger.warning(f"[ResearchStore] promote blocked: {promo}")
+        except Exception as e:
+            logger.error(f"[ResearchStore] promote hook failed: {e}")
+            report["promotion_result"] = {"ok": False, "reason": str(e)}
+
     save_report(report)
     return report
 

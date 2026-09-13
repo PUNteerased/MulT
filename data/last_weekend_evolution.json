@@ -1,0 +1,19 @@
+{
+  "ts": 1789302832.4679756,
+  "result": {
+    "status": "COMPLETED",
+    "challenger_version": "20260913_123352_24170a",
+    "trades_processed": 1,
+    "metrics": {
+      "n": 1,
+      "expectancy": 0.0,
+      "source": "insufficient_oof"
+    },
+    "drift": {
+      "breached": false,
+      "reason": "no_snapshot"
+    },
+    "research_report": "D:\\Project\\!MulT\\data\\research_reports\\RES_C6950A5060.json",
+    "cnn_finetune": "SKIPPED_NO_SEQUENCE_STORE"
+  }
+}

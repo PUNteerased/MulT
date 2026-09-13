@@ -38,7 +38,7 @@ LEGACY_RISK_PATH = DATA_DIR / "risk_runtime.json"
 _lock = threading.RLock()
 _cache: Optional["SystemRuntime"] = None
 
-SECTIONS = ("risk", "llm", "meta", "sniper", "calendar", "execution", "symbols")
+SECTIONS = ("risk", "llm", "meta", "sniper", "calendar", "execution", "evolution", "symbols")
 
 
 class RiskSection(BaseModel):
@@ -54,6 +54,10 @@ class RiskSection(BaseModel):
     cooldown_at: int = Field(default=RISK_COOLDOWN_AT, ge=1, le=50)
     cooldown_clear_wins: int = Field(default=RISK_COOLDOWN_CLEAR_WINS, ge=1, le=20)
     cooldown_hours: float = Field(default=RISK_COOLDOWN_HOURS, ge=0.1, le=168.0)
+    # Survivability: fractional Kelly is a CAP (never raises risk above floor/ceiling path)
+    kelly_fraction: float = Field(default=0.25, ge=0.0, le=1.0)
+    max_peak_dd_pct: float = Field(default=0.15, ge=0.01, le=0.90)
+    halt_requires_human_reset: bool = True
 
     @field_validator("ceiling")
     @classmethod
@@ -107,6 +111,15 @@ class LlmSection(BaseModel):
 
 class MetaSection(BaseModel):
     min_win_probability: float = Field(default=MIN_WIN_PROBABILITY, ge=0.5, le=0.99)
+
+
+class EvolutionSection(BaseModel):
+    shadow_min_days: int = Field(default=14, ge=1, le=90)
+    shadow_min_signals: int = Field(default=30, ge=5, le=500)
+    psi_threshold: float = Field(default=0.25, ge=0.05, le=2.0)
+    max_dd_worsen_pct: float = Field(default=0.20, ge=0.0, le=1.0)
+    once_per_weekend: bool = True
+    embargo_bars: int = Field(default=5, ge=0, le=50)
 
 
 class SniperSection(BaseModel):
@@ -163,6 +176,7 @@ class SystemRuntime(BaseModel):
     sniper: SniperSection = Field(default_factory=SniperSection)
     calendar: CalendarSection = Field(default_factory=CalendarSection)
     execution: ExecutionSection = Field(default_factory=ExecutionSection)
+    evolution: EvolutionSection = Field(default_factory=EvolutionSection)
     symbols: Dict[str, SymbolOverlay] = Field(default_factory=_default_symbols)
     updated_at: float = Field(default_factory=time.time)
 
