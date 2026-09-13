@@ -4,12 +4,19 @@ Serves the FastAPI Web Gateway and WebSocket Hub.
 Enables local access, LAN access from phone/tablet, and optional remote tunnel.
 """
 import argparse
+import os
 import socket
 import urllib.parse
 import uvicorn
 from loguru import logger
 
 VERCEL_UI = "https://mult-trade-forex.vercel.app"
+# Free ngrok static Dev Domain (never changes across restarts)
+NGROK_DOMAIN = os.environ.get(
+    "NGROK_DOMAIN",
+    "beula-nonintersecting-frigidly.ngrok-free.dev",
+)
+STATIC_TUNNEL_URL = f"https://{NGROK_DOMAIN}"
 
 
 def get_local_ip() -> str:
@@ -24,27 +31,37 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def print_tunnel_urls(public_url: str) -> None:
+    bridge = f"{VERCEL_UI}?backend={urllib.parse.quote(public_url, safe='')}"
+    print("=" * 65)
+    print("Static tunnel URL (same every time):")
+    print(f"  {public_url}")
+    print("Vercel bridge (open once — UI + localStorage remember it):")
+    print(f"  {bridge}")
+    print("=" * 65)
+
+
 def start_ngrok_tunnel(port: int):
-    """Optional ngrok public tunnel launcher."""
+    """Optional ngrok public tunnel on the account Dev Domain."""
     try:
         import ngrok
-        logger.info("[Tunnel] Attempting to establish ngrok public tunnel...")
-        listener = ngrok.forward(port, authtoken_from_env=True)
-        public_url = str(listener.url()).rstrip("/")
+        logger.info(f"[Tunnel] Binding ngrok Dev Domain: {NGROK_DOMAIN}")
+        listener = ngrok.forward(
+            port,
+            authtoken_from_env=True,
+            domain=NGROK_DOMAIN,
+        )
+        public_url = str(listener.url()).rstrip("/") or STATIC_TUNNEL_URL
         logger.info(f"PUBLIC TUNNEL: {public_url}")
-        bridge = f"{VERCEL_UI}?backend={urllib.parse.quote(public_url, safe='')}"
-        print("=" * 65)
-        print("Vercel bridge (open this once — UI remembers tunnel):")
-        print(f"  {bridge}")
-        print("Or open the tunnel URL directly (UI+API same origin):")
-        print(f"  {public_url}")
-        print("=" * 65)
+        print_tunnel_urls(public_url)
         return listener
     except Exception as e:
         logger.warning(
             f"[Tunnel] Could not auto-start ngrok ({e}).\n"
-            f"  Manual: ngrok http {port}\n"
-            f"  Then open: {VERCEL_UI}?backend=https://YOUR-NGROK-URL"
+            f"  Manual (static URL):\n"
+            f"    ngrok http {port} --url {STATIC_TUNNEL_URL}\n"
+            f"  Then open once:\n"
+            f"    {VERCEL_UI}?backend={STATIC_TUNNEL_URL}"
         )
         return None
 
@@ -63,7 +80,11 @@ def main():
     print("=" * 65)
     print(f"Local Machine:      http://localhost:{args.port}")
     print(f"Phone on same Wi-Fi: http://{local_ip}:{args.port}")
-    print(f"Vercel UI (needs tunnel): {VERCEL_UI}")
+    print(f"Vercel UI:          {VERCEL_UI}")
+    print(f"Static ngrok URL:   {STATIC_TUNNEL_URL}")
+    print("=" * 65)
+    print("Remote access (after dashboard is up):")
+    print(f"  ngrok http {args.port} --url {STATIC_TUNNEL_URL}")
     print("=" * 65)
 
     if args.tunnel:

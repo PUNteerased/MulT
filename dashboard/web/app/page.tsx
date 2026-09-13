@@ -71,7 +71,7 @@ function VercelTunnelBanner({
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="https://xxxx.ngrok-free.app"
+        placeholder="https://beula-nonintersecting-frigidly.ngrok-free.dev"
         className="mono"
         style={{
           flex: '1 1 240px',
