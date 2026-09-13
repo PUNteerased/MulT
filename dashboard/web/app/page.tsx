@@ -38,6 +38,7 @@ import {
 import type { PositionLive, Tone } from '@/lib/types'
 import { RiskLab } from '@/components/RiskLab'
 import { SettingsPanel } from '@/components/SettingsPanel'
+import { PerformanceCalendar, tradeDayKey, type CalendarTrade } from '@/components/PerformanceCalendar'
 
 function VercelTunnelBanner({
   connected,
@@ -567,8 +568,14 @@ function Hardware({ live }: { live: LiveDashboardApi }) {
 }
 
 function TradesPanel({ live }: { live: LiveDashboardApi }) {
-  const closed = live.portfolio?.closed_trades || live.trades || []
+  const closed = (live.portfolio?.closed_trades || live.trades || []) as CalendarTrade[]
   const open = live.account?.active_positions || []
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const initial = live.portfolio?.initial_balance ?? 50
+
+  const filtered = selectedDay
+    ? closed.filter((t) => tradeDayKey(t) === selectedDay)
+    : closed
 
   return (
     <>
@@ -583,13 +590,32 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
         </div>
         <PositionTable positions={open} />
       </section>
+
+      <div style={{ marginTop: 15 }}>
+        <PerformanceCalendar
+          trades={closed}
+          initialBalance={initial}
+          selectedDay={selectedDay}
+          onSelectDay={setSelectedDay}
+        />
+      </div>
+
       <section className="panel table-panel" style={{ marginTop: 15 }}>
         <div className="panel-title">
           <div>
             <p className="eyebrow">JOURNAL</p>
-            <h2>Closed / logged trades</h2>
+            <h2>
+              {selectedDay ? `Trades on ${selectedDay}` : 'Closed / logged trades'}
+            </h2>
           </div>
-          <span className="badge green">{closed.length}</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {selectedDay ? (
+              <button type="button" className="subtle-button" style={{ padding: '6px 10px' }} onClick={() => setSelectedDay(null)}>
+                Clear filter
+              </button>
+            ) : null}
+            <span className="badge green">{filtered.length}</span>
+          </div>
         </div>
         <div className="table-scroll">
           <table>
@@ -603,18 +629,18 @@ function TradesPanel({ live }: { live: LiveDashboardApi }) {
               </tr>
             </thead>
             <tbody>
-              {(closed.length
-                ? closed.slice(0, 80)
-                : [{ time: '—', symbol: '—', direction: '—', pnl: 0, comment: 'No trades yet' }]
-              ).map((t: Record<string, unknown>, i: number) => (
-                <tr key={String(t.id || t.ticket_id || i)}>
+              {(filtered.length
+                ? filtered.slice(0, 80)
+                : [{ time: '—', symbol: '—', direction: '—', pnl: 0, comment: selectedDay ? 'No trades this day' : 'No trades yet' }]
+              ).map((t, i) => (
+                <tr key={String((t as CalendarTrade & { ticket?: string; id?: string }).id || (t as { ticket?: string }).ticket || i)}>
                   <td className="mono">{String(t.time || t.closed_at || t.exit_time || '—')}</td>
                   <td className="mono">{String(t.symbol || '—')}</td>
                   <td>{String(t.direction || t.side || '—')}</td>
                   <td className={Number(t.pnl ?? t.profit ?? 0) >= 0 ? 'text-green' : 'text-rose'}>
                     {formatUsd(Number(t.pnl ?? t.profit ?? 0))}
                   </td>
-                  <td className="muted">{String(t.comment || t.note || '')}</td>
+                  <td className="muted">{String((t as { comment?: string; note?: string }).comment || (t as { note?: string }).note || '')}</td>
                 </tr>
               ))}
             </tbody>
