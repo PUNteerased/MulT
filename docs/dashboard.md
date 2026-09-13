@@ -120,12 +120,13 @@ npm run dev
 
 Root `package.json` จะ build `dashboard/web` แล้ว copy ไป `/out` ให้ Vercel
 
-### โดเมนที่ผิด
-- `temporary-brisk-marsh-*.vercel.app` — โดเมนชั่วคราวเก่า มัก 404  
-- `mult-trade.vercel.app` — ตอนนี้ชี้แอป **Hyperliquid Trade Test** คนละโปรเจกต์  
+### โดเมนที่ใช้อยู่
+- **Production:** `https://mult-trade-forex.vercel.app`  
+- อย่าใช้ `temporary-brisk-marsh-*.vercel.app` (โดเมนชั่วคราวเก่า)  
+- `mult-trade.vercel.app` เป็นคนละโปรเจกต์ (Hyperliquid) — ไม่ใช่ MulT Ops Console
 
-หลัง redeploy ให้เปิด URL ของ **Deployment** ล่าสุดในหน้า Deployments (ปุ่ม Visit) ไม่ใช่โดเมน marsh เก่า  
-หรือไป **Settings → Domains** เพิ่มโดเมนใหม่ เช่น `mult-ops.vercel.app` แล้วชี้ Production ไป deployment ล่าสุด
+หลัง redeploy ให้เปิด **Visit** จาก Deployments ของ commit ล่าสุด แล้วตรวจว่าหน้าขึ้น **MulT Ops Console**  
+ถ้าโดเมนยัง 404 = Production ยังชี้ deploy ว่าง หรือ build ยังไม่สร้าง `/out`
 
 ## ทดสอบ
 `tests/test_dashboard.py` ตรวจ telemetry, REST รวม `/api/portfolio` (`timezone == Asia/Bangkok`), และ WebSocket snapshot
