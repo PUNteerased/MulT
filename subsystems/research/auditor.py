@@ -14,14 +14,17 @@ from config.settings import (
     FIXED_LOT_SIZE,
     LLM_BASE_URL,
     LLM_MODEL,
-    MAX_RISK_DOLLARS_PER_TRADE,
     MAX_SPREAD_RISK_PCT,
+    RISK_PCT_PER_TRADE,
+    RISK_DOLLARS_FLOOR,
+    RISK_DOLLARS_CEILING,
     SYMBOLS_CONFIG,
 )
 from core.risk.money import price_diff_to_usd, spread_points_to_usd
 from subsystems.research.agent_loop import check_quality
 from subsystems.research.llm_client import LocalLLMClient
 from subsystems.research.store import save_report
+from subsystems.risk_guard.guard_50 import RiskGuard50
 
 
 def _rule_checklist() -> List[Dict[str, Any]]:
@@ -64,13 +67,14 @@ def _rule_checklist() -> List[Dict[str, Any]]:
     )
 
     s = spread_points_to_usd("EURUSD", 20, FIXED_LOT_SIZE, mid_price=1.10)
-    max_spread = MAX_RISK_DOLLARS_PER_TRADE * MAX_SPREAD_RISK_PCT
+    cap50 = RiskGuard50.compute_max_risk_dollars(50.0, 1.0)
+    max_spread = cap50 * MAX_SPREAD_RISK_PCT
     checks.append(
         {
             "id": "spread_budget_default",
             "ok": s <= max_spread,
             "detail": f"EURUSD 20 pts spread ≈ ${s:.4f}; budget ${max_spread:.2f} "
-            f"({MAX_SPREAD_RISK_PCT*100:.0f}% of ${MAX_RISK_DOLLARS_PER_TRADE})",
+            f"({MAX_SPREAD_RISK_PCT*100:.0f}% of ${cap50:.2f} @ eq=$50)",
         }
     )
 
@@ -86,9 +90,29 @@ def _rule_checklist() -> List[Dict[str, Any]]:
 
     checks.append(
         {
-            "id": "hard_cap_2_50",
-            "ok": MAX_RISK_DOLLARS_PER_TRADE == 2.50,
-            "detail": f"MAX_RISK_DOLLARS_PER_TRADE={MAX_RISK_DOLLARS_PER_TRADE}",
+            "id": "risk_pct_floor_at_50",
+            "ok": abs(RiskGuard50.compute_max_risk_dollars(50.0) - RISK_DOLLARS_FLOOR) < 1e-6,
+            "detail": f"eq=$50 → cap=${RiskGuard50.compute_max_risk_dollars(50.0):.2f} "
+            f"(floor ${RISK_DOLLARS_FLOOR}, pct={RISK_PCT_PER_TRADE})",
+        }
+    )
+    checks.append(
+        {
+            "id": "risk_ceiling_at_1200",
+            "ok": abs(RiskGuard50.compute_max_risk_dollars(1200.0) - RISK_DOLLARS_CEILING) < 1e-6,
+            "detail": f"eq=$1200 → cap=${RiskGuard50.compute_max_risk_dollars(1200.0):.2f} "
+            f"(ceiling ${RISK_DOLLARS_CEILING})",
+        }
+    )
+    checks.append(
+        {
+            "id": "risk_bounds_sane",
+            "ok": (
+                0 < RISK_PCT_PER_TRADE <= 0.02
+                and RISK_DOLLARS_FLOOR > 0
+                and RISK_DOLLARS_CEILING >= RISK_DOLLARS_FLOOR
+            ),
+            "detail": f"pct={RISK_PCT_PER_TRADE} floor={RISK_DOLLARS_FLOOR} ceiling={RISK_DOLLARS_CEILING}",
         }
     )
     return checks
@@ -135,7 +159,9 @@ def run_calculation_audit(
     mode = "rules_only"
     narrative = (
         f"Rule-based Calculation Auditor: {passed}/{len(checks)} checks passed. "
-        f"Hard risk cap ${MAX_RISK_DOLLARS_PER_TRADE:.2f} @ {FIXED_LOT_SIZE} lot. "
+        f"Dynamic risk {RISK_PCT_PER_TRADE*100:.2f}% eq "
+        f"(floor ${RISK_DOLLARS_FLOOR:.2f} / ceiling ${RISK_DOLLARS_CEILING:.2f}) "
+        f"@ {FIXED_LOT_SIZE} lot. "
         "No configuration files were modified."
     )
     llm_meta = {

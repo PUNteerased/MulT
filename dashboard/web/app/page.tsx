@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -278,10 +278,12 @@ function Overview({ live }: { live: LiveDashboardApi }) {
     },
     {
       label: 'Risk guard',
-      value: 'ARMED',
-      note: 'Max loss $2.50 · 0.01 lot',
+      value: live.status?.risk?.cooldown ? 'COOLDOWN' : 'ARMED',
+      note: live.status?.risk
+        ? `Max ${formatUsd(live.status.risk.risk_cap_usd)} · ${(live.status.risk.pct * 100).toFixed(2)}% eq · 0.01 lot`
+        : 'Max 0.5% eq · 0.01 lot',
       icon: ShieldCheck,
-      tone: 'amber',
+      tone: live.status?.risk?.cooldown ? 'rose' : 'amber',
     },
   ] as const
 
@@ -337,7 +339,7 @@ function Overview({ live }: { live: LiveDashboardApi }) {
               ['MulT orchestrator', live.connected ? 'Streaming' : 'Disconnected', live.connected ? 'cyan' : 'rose', Zap],
               ['DuckDB journal', `${live.trades.length} trades`, 'green', Database],
               ['ZeroMQ bridge', live.connected ? 'Subscribed' : 'Idle', live.connected ? 'violet' : 'amber', Network],
-              ['Risk guard', 'Armed $2.50', 'amber', LockKeyhole],
+              ['Risk guard', live.status?.risk?.cooldown ? 'CooldownOLDOWN' : (live.status?.risk ? `Armed ${formatUsd(live.status.risk.risk_cap_usd)}` : 'Armed 0.5% EQ'), live.status?.risk?.cooldown ? 'rose' : 'amber', LockKeyhole],
             ].map(([name, status, tone, Icon]) => (
               <div className="service-row" key={name as string}>
                 <Icon />
@@ -359,6 +361,7 @@ function Overview({ live }: { live: LiveDashboardApi }) {
           </div>
         </section>
       </div>
+      <RiskConfigEditor live={live} />
       <section className="panel table-panel">
         <div className="panel-title">
           <div>
@@ -499,6 +502,148 @@ function Hardware({ live }: { live: LiveDashboardApi }) {
   )
 }
 
+function RiskConfigEditor({ live }: { live: LiveDashboardApi }) {
+  const r = live.status?.risk
+  const [mode, setMode] = useState<'pct' | 'fixed'>(r?.mode || 'pct')
+  const [pctInput, setPctInput] = useState(String(((r?.risk_pct ?? r?.pct ?? 0.005) * 100).toFixed(2)))
+  const [fixedInput, setFixedInput] = useState(String(r?.fixed_dollars ?? 2.5))
+  const [floor, setFloor] = useState(String(r?.floor ?? 1))
+  const [ceiling, setCeiling] = useState(String(r?.ceiling ?? 5))
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!r) return
+    setMode(r.mode || 'pct')
+    setPctInput(String(((r.risk_pct ?? r.pct ?? 0.005) * 100).toFixed(2)))
+    setFixedInput(String(r.fixed_dollars ?? 2.5))
+    setFloor(String(r.floor ?? 1))
+    setCeiling(String(r.ceiling ?? 5))
+  }, [r?.mode, r?.pct, r?.risk_pct, r?.fixed_dollars, r?.floor, r?.ceiling, r?.updated_at])
+
+  async function save() {
+    if (!live.backendUrl) {
+      setMsg('No backend URL')
+      return
+    }
+    setBusy(true)
+    const body =
+      mode === 'fixed'
+        ? { mode: 'fixed' as const, fixed_dollars: Number(fixedInput) }
+        : {
+            mode: 'pct' as const,
+            risk_pct: Number(pctInput), // API accepts 0.5 as 0.5%
+            floor: Number(floor),
+            ceiling: Number(ceiling),
+          }
+    const res = await apiPost<{ ok?: boolean; reason?: string; config?: { label?: string; risk_cap_usd?: number } }>(
+      live.backendUrl,
+      '/api/risk/config',
+      body,
+    )
+    setBusy(false)
+    if (res?.ok) {
+      setMsg(`Saved · live cap ${formatUsd(res.config?.risk_cap_usd)} (${res.config?.label || mode})`)
+      await live.refresh()
+    } else {
+      setMsg(`Save failed: ${res?.reason || 'error'}`)
+    }
+  }
+
+  const inputStyle: CSSProperties = {
+    width: '100%',
+    padding: '8px 10px',
+    borderRadius: 6,
+    border: '1px solid rgba(148,163,184,.35)',
+    background: '#0b1220',
+    color: '#e2e8f0',
+    fontSize: 13,
+  }
+
+  return (
+    <section className="panel" style={{ marginTop: 15 }}>
+      <div className="panel-title">
+        <div>
+          <p className="eyebrow">RISK CONFIG</p>
+          <h2>Percent of equity or fixed $</h2>
+        </div>
+        <span className="badge amber">{r?.label || '0.5% eq'}</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '8px 4px' }}>
+        <button
+          className="primary-button"
+          style={{
+            padding: '8px 14px',
+            fontSize: 12,
+            opacity: mode === 'pct' ? 1 : 0.55,
+          }}
+          onClick={() => setMode('pct')}
+          type="button"
+        >
+          % of equity
+        </button>
+        <button
+          className="primary-button"
+          style={{
+            padding: '8px 14px',
+            fontSize: 12,
+            opacity: mode === 'fixed' ? 1 : 0.55,
+          }}
+          onClick={() => setMode('fixed')}
+          type="button"
+        >
+          Fixed $
+        </button>
+      </div>
+      {mode === 'pct' ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 10,
+            padding: '4px 4px 12px',
+          }}
+        >
+          <label style={{ fontSize: 11, color: '#94a3b8' }}>
+            Risk % per trade
+            <input className="mono" style={inputStyle} value={pctInput} onChange={(e) => setPctInput(e.target.value)} />
+          </label>
+          <label style={{ fontSize: 11, color: '#94a3b8' }}>
+            Floor $
+            <input className="mono" style={inputStyle} value={floor} onChange={(e) => setFloor(e.target.value)} />
+          </label>
+          <label style={{ fontSize: 11, color: '#94a3b8' }}>
+            Ceiling $
+            <input className="mono" style={inputStyle} value={ceiling} onChange={(e) => setCeiling(e.target.value)} />
+          </label>
+        </div>
+      ) : (
+        <div style={{ maxWidth: 220, padding: '4px 4px 12px' }}>
+          <label style={{ fontSize: 11, color: '#94a3b8' }}>
+            Fixed $ per trade
+            <input className="mono" style={inputStyle} value={fixedInput} onChange={(e) => setFixedInput(e.target.value)} />
+          </label>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '0 4px 10px' }}>
+        <button
+          className="primary-button"
+          style={{ padding: '8px 16px', fontSize: 12 }}
+          disabled={busy || !live.backendUrl}
+          onClick={() => void save()}
+          type="button"
+        >
+          {busy ? 'Saving…' : 'Save risk config'}
+        </button>
+        <span className="mono" style={{ fontSize: 12, color: '#e2e8f0' }}>
+          Live cap now: {formatUsd(r?.risk_cap_usd)}
+        </span>
+      </div>
+      {msg ? <p className="muted" style={{ fontSize: 12, padding: '0 4px 8px' }}>{msg}</p> : null}
+    </section>
+  )
+}
+
 function Portfolio({ live }: { live: LiveDashboardApi }) {
   const pf = live.portfolio
   const equity = pf?.current_equity ?? live.account?.equity ?? 50
@@ -537,7 +682,13 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
           <LockKeyhole />
           <div>
             <span>Risk guard</span>
-            <strong>ARMED · $2.50 MAX</strong>
+            <strong>
+              {live.status?.risk?.cooldown
+                ? 'COOLDOWN'
+                : live.status?.risk
+                  ? `ARMED · ${formatUsd(live.status.risk.risk_cap_usd)} (${live.status.risk.label || `${((live.status.risk.pct || 0) * 100).toFixed(2)}% EQ`})`
+                  : 'ARMED · 0.5% EQ'}
+            </strong>
           </div>
         </div>
       </section>
@@ -565,7 +716,7 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
           <div className="risk-list">
             {[
               ['Initial balance', formatUsd(initial), pf?.source || 'mt5', 'cyan'],
-              ['Max daily loss', '$2.50 hard cap', 'Strategy rule (5% of $50 model)', 'green'],
+              ['Max risk / trade', live.status?.risk ? `${formatUsd(live.status.risk.risk_cap_usd)} · ${live.status.risk.label || '—'}` : '0.5% of equity', live.status?.risk?.mode === 'fixed' ? 'Fixed dollar mode' : `Floor ${formatUsd(live.status?.risk?.floor ?? 1)} · ceiling ${formatUsd(live.status?.risk?.ceiling ?? 5)}`, 'green'],
               ['Max position size', '0.01 lots', 'Broker minimum', 'cyan'],
               ['Balance', formatUsd(balance), live.account?.currency || 'USD', 'green'],
               ['Floating P/L', formatUsd(floating), `${positions.length} open`, floating >= 0 ? 'green' : 'rose'],
@@ -948,7 +1099,7 @@ function Mult({ live }: { live: LiveDashboardApi }) {
           <div className="plan-grid">
             {[
               ['Entry zone', entry],
-              ['Risk cap', '$2.50'],
+              ['Risk cap', live.status?.risk ? formatUsd(live.status.risk.risk_cap_usd) : '0.5% eq'],
               ['Lot size', '0.01'],
               ['BE trail', '+2 pips @ 1:1.5R'],
               ['Meta gate', 'LGBM ≥ 0.75'],

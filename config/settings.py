@@ -17,13 +17,21 @@ LOGS_DIR = BASE_DIR / "logs"
 for folder in [DATA_DIR, MODELS_DIR, LOGS_DIR]:
     folder.mkdir(parents=True, exist_ok=True)
 
-# Risk constants for $50 Account
+# Risk constants — dynamic % of equity (demo micro account)
 ACCOUNT_INITIAL_BALANCE = 50.0
-MAX_RISK_DOLLARS_PER_TRADE = 2.50  # 5% of $50 hard cap
+RISK_PCT_PER_TRADE = 0.005          # 0.5% of current equity per trade
+RISK_DOLLARS_FLOOR = 1.0            # min meaningful SL / commission buffer
+RISK_DOLLARS_CEILING = 5.0          # hard ceiling when equity grows fast
+RISK_STREAK_HALF_AT = 2             # consecutive losses → half risk
+RISK_COOLDOWN_AT = 3                # consecutive losses → cool-down (no new entries)
+RISK_COOLDOWN_CLEAR_WINS = 2        # consecutive wins clear cool-down
+RISK_COOLDOWN_HOURS = 4.0           # or clear cool-down after this many hours
+# Legacy alias: ceiling reference for docs / old labels (not the live hot-path cap)
+MAX_RISK_DOLLARS_PER_TRADE = RISK_DOLLARS_CEILING
 MAX_CONCURRENT_POSITIONS = 1       # Strictly 1 active trade at any time across account
 FIXED_LOT_SIZE = 0.01              # Minimum trade lot allowed by broker
 MIN_WIN_PROBABILITY = 0.75         # LightGBM filter gate
-MAX_SPREAD_RISK_PCT = 0.20         # Reject if spread USD > 20% of $2.50 risk budget
+MAX_SPREAD_RISK_PCT = 0.20         # Reject if spread USD > 20% of dynamic risk budget
 
 # Local LM Studio (free) — Research Calculation Auditor
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:1234/v1")

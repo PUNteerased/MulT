@@ -66,15 +66,26 @@ async def test_full_sniper_e2e_pipeline():
     # Ensure gate evaluates
     assert 0.0 <= win_prob <= 1.0
 
-    # 6. $50 Risk Guard ($2.50 hard cap check)
+    # 6. Risk Guard (dynamic equity cap — use higher equity so sniper wick SL can fit)
     guard = RiskGuard50()
+    full = {
+        "loss_streak": 0,
+        "win_streak": 0,
+        "multiplier": 1.0,
+        "cooldown": False,
+        "reason": "e2e",
+    }
     ok, reason, ticket = guard.evaluate_trigger(
-        alert=alert, current_spread_points=10, active_positions_count=0,
-        account_equity=50.0, win_prob=win_prob
+        alert=alert,
+        current_spread_points=10,
+        active_positions_count=0,
+        account_equity=760.0,
+        win_prob=win_prob,
+        streak_state=full,
     )
-    assert ok is True
+    assert ok is True, reason
     assert ticket is not None
-    assert ticket.risk_dollars <= 2.50
+    assert ticket.risk_dollars <= ticket.risk_cap_usd
     assert ticket.lot == 0.01
 
     # 7. MT5 Order Router Execution (Dry Run)

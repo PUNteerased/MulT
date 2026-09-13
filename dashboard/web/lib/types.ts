@@ -109,6 +109,20 @@ export interface StatusResponse {
   symbols?: string[]
   account?: AccountSnapshot
   hardware?: HardwareSnapshot
+  risk?: {
+    mode?: 'pct' | 'fixed'
+    pct: number
+    risk_pct?: number
+    floor: number
+    ceiling: number
+    fixed_dollars?: number
+    risk_cap_usd: number
+    equity: number
+    label?: string
+    updated_at?: number
+    cooldown?: boolean
+    streak?: Record<string, unknown>
+  }
   timestamp?: number
 }
 

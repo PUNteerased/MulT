@@ -76,6 +76,9 @@ class TradeTicketEvent(BaseModel):
     spread_usd: float = 0.0
     atr_k1: float = 1.2
     atr_k2: float = 0.15
+    risk_cap_usd: float = 0.0
+    risk_pct: float = 0.005
+    streak_multiplier: float = 1.0
     created_at: float = Field(default_factory=time.time)
 
 class ExecutionEvent(BaseModel):

@@ -16,7 +16,8 @@ from loguru import logger
 
 from config.settings import (
     FIXED_LOT_SIZE,
-    MAX_RISK_DOLLARS_PER_TRADE,
+    RISK_DOLLARS_CEILING,
+    RISK_PCT_PER_TRADE,
     SYMBOLS_CONFIG,
     VALIDATION_REPORTS_DIR,
 )
@@ -137,11 +138,12 @@ def run_pipeline_backtest(
             account_equity=50.0,
             win_prob=win_prob,
             atr=atr if atr > 0 else None,
+            streak_state={"loss_streak": 0, "win_streak": 0, "multiplier": 1.0, "cooldown": False, "reason": "backtest"},
         )
         if not ok or not ticket:
             if reason and "Spread" in reason:
                 rejects["spread"] += 1
-            elif reason and ("Risk" in reason or "2.50" in reason):
+            elif reason and ("Risk" in reason or "risk cap" in reason.lower() or "Cool-down" in reason):
                 rejects["risk"] += 1
             else:
                 rejects["other"] += 1
@@ -192,7 +194,9 @@ def run_pipeline_backtest(
         "rejects": rejects,
         "metrics": metrics,
         "calibration": calib,
-        "max_risk_cap": MAX_RISK_DOLLARS_PER_TRADE,
+        "max_risk_cap": RiskGuard50.compute_max_risk_dollars(50.0),
+        "risk_pct": RISK_PCT_PER_TRADE,
+        "risk_ceiling": RISK_DOLLARS_CEILING,
         "atr_defaults": {"k1": cfg.atr_k1, "k2": cfg.atr_k2, "tf": cfg.atr_timeframe_sl},
         "trades": trades,
         "source_note": "Offline pipeline backtest (sweep heuristic + RiskGuard50). Not tick-level trail.",

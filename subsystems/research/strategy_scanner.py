@@ -9,7 +9,7 @@ from subsystems.research.store import save_report
 
 CURRENT_STACK = (
     "Current MulT stack: M1 liquidity sweep sniper, LightGBM meta-label ≥75%, "
-    "RiskGuard50 ($2.50 / 0.01 lot), ATR k1/k2 SL/trail, HMM regime labels, "
+    "RiskGuard50 (0.5% equity risk / 0.01 lot, floor $1 ceiling $5), ATR k1/k2 SL/trail, HMM regime labels, "
     "FinBERT/calendar Red Folder halt, Weekend Learner retrain (no research auto-apply)."
 )
 

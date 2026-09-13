@@ -33,6 +33,9 @@ from config.settings import (
     RESEARCH_REPORTS_DIR,
     LLM_BASE_URL,
     LLM_MODEL,
+    RISK_PCT_PER_TRADE,
+    RISK_DOLLARS_FLOOR,
+    RISK_DOLLARS_CEILING,
 )
 from core.bus.zmq_bus import ZMQSubscriber
 from core.memory.in_memory_cache import MarketMemoryCache
@@ -306,6 +309,20 @@ async def get_system_status():
     """System health snapshot and subsystem availability."""
     snapshot = await SystemTelemetryCollector.get_full_snapshot_async()
     red_folder, active_news = calendar_crawler.check_red_folder_status()
+    equity = float((snapshot.get("account") or {}).get("equity") or 50.0)
+    from subsystems.risk_guard.guard_50 import RiskGuard50
+    from subsystems.risk_guard.runtime_config import load_risk_config
+    from subsystems.risk_guard.streak import load_streak_state
+
+    streak = await asyncio.to_thread(load_streak_state)
+    rcfg = await asyncio.to_thread(load_risk_config)
+    risk_cap = RiskGuard50.compute_max_risk_dollars(
+        equity, float(streak.get("multiplier", 1.0)) if not streak.get("cooldown") else 0.0
+    )
+    risk_public = rcfg.public_dict(
+        equity,
+        float(streak.get("multiplier", 1.0)) if not streak.get("cooldown") else 0.0,
+    )
 
     return {
         "status": "ok",
@@ -316,7 +333,7 @@ async def get_system_status():
             "poi_radar": "ONLINE",
             "m1_sniper": "ONLINE",
             "meta_labeling": "ONLINE",
-            "risk_guard": "ONLINE",
+            "risk_guard": "COOLDOWN" if streak.get("cooldown") else "ONLINE",
             "execution": "ONLINE",
         },
         "system_state": "HALT_TRADING" if red_folder else "NORMAL",
@@ -328,8 +345,43 @@ async def get_system_status():
         "target_symbols": TARGET_SYMBOLS,
         "account": snapshot["account"],
         "hardware": snapshot["hardware"],
+        "risk": {
+            **risk_public,
+            "pct": rcfg.risk_pct,
+            "risk_cap_usd": risk_cap,
+            "equity": equity,
+            "streak": streak,
+            "cooldown": bool(streak.get("cooldown")),
+        },
         "timestamp": time.time(),
     }
+
+
+class RiskConfigBody(BaseModel):
+    mode: Opt[Literal["pct", "fixed"]] = None
+    risk_pct: Opt[float] = None
+    floor: Opt[float] = None
+    ceiling: Opt[float] = None
+    fixed_dollars: Opt[float] = None
+
+
+@app.get("/api/risk/config")
+async def get_risk_config():
+    from subsystems.risk_guard.runtime_config import load_risk_config
+
+    cfg = await asyncio.to_thread(load_risk_config)
+    return {"ok": True, "config": cfg.public_dict()}
+
+
+@app.post("/api/risk/config")
+async def post_risk_config(body: RiskConfigBody):
+    from subsystems.risk_guard.runtime_config import save_risk_config
+
+    try:
+        cfg = await asyncio.to_thread(save_risk_config, body.model_dump(exclude_none=True))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "config": cfg.public_dict()}
 
 
 @app.get("/api/telemetry")
