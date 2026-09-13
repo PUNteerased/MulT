@@ -50,6 +50,13 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 for sub in ["css", "js"]:
     (STATIC_DIR / sub).mkdir(parents=True, exist_ok=True)
 
+# Prefer Next.js static export (MulT Ops Console); fall back to legacy SPA
+WEB_OUT_DIR = BASE_DIR / "out"
+if not (WEB_OUT_DIR / "index.html").exists():
+    alt = BASE_DIR / "dashboard" / "web" / "out"
+    if (alt / "index.html").exists():
+        WEB_OUT_DIR = alt
+
 
 class ConnectionManager:
     """Manages active WebSocket connections and message broadcasting."""
@@ -277,16 +284,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static folder
+# Mount static folders (API + WS routes registered below take precedence when matched first)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if (WEB_OUT_DIR / "_next").is_dir():
+    app.mount("/_next", StaticFiles(directory=str(WEB_OUT_DIR / "_next")), name="next_assets")
 
 
 @app.get("/")
 async def serve_index():
-    """Serve the single page application dashboard."""
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
+    """Serve MulT Ops Console (Next export) or legacy SPA — same-origin API/WS (no Backend URL)."""
+    for index_path in (WEB_OUT_DIR / "index.html", STATIC_DIR / "index.html"):
+        if index_path.exists():
+            return FileResponse(index_path)
     return JSONResponse({"status": "Dashboard frontend loading..."})
 
 
@@ -474,3 +483,17 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.debug(f"[WebSocket] Disconnected with reason: {e}")
         await ws_manager.disconnect(websocket)
+
+
+@app.get("/{asset_path:path}")
+async def serve_web_asset(asset_path: str):
+    """Serve Next export public assets (icons, placeholders) from out/."""
+    if not asset_path or asset_path.startswith(("api/", "ws", "static/")):
+        raise HTTPException(status_code=404, detail="Not found")
+    candidate = WEB_OUT_DIR / asset_path
+    if candidate.is_file():
+        return FileResponse(candidate)
+    legacy = STATIC_DIR / asset_path
+    if legacy.is_file():
+        return FileResponse(legacy)
+    raise HTTPException(status_code=404, detail="Not found")

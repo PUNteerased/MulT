@@ -5,7 +5,6 @@ import {
   apiGet,
   formatLocalTime,
   formatClock,
-  getStoredBackendUrl,
   resolveBackendUrl,
   setStoredBackendUrl,
   toWsUrl,
@@ -55,6 +54,9 @@ export function useLiveDashboard() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
+  const backendUrlRef = useRef('')
+  const refreshRestRef = useRef<(base: string) => Promise<void>>(async () => {})
 
   const setBackendUrl = useCallback((url: string) => {
     const clean = url.trim().replace(/\/$/, '')
@@ -101,161 +103,211 @@ export function useLiveDashboard() {
     else setResearchReports([])
   }, [])
 
-  const connectWs = useCallback(
-    (base: string) => {
-      if (!base) {
-        setConfigOpen(true)
-        return
-      }
-      if (wsRef.current) {
-        try {
-          wsRef.current.close()
-        } catch {
-          /* ignore */
-        }
-      }
+  refreshRestRef.current = refreshRest
 
-      const wsUrl = toWsUrl(base)
-      let ws: WebSocket
+  const connectWs = useCallback((base: string) => {
+    if (!base) {
+      setConfigOpen(true)
+      return
+    }
+
+    // Already live on the same backend — do not tear down (avoids OFFLINE flicker)
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) &&
+      backendUrlRef.current === base
+    ) {
+      return
+    }
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+
+    if (wsRef.current) {
+      intentionalCloseRef.current = true
       try {
-        ws = new WebSocket(wsUrl)
+        wsRef.current.onclose = null
+        wsRef.current.onerror = null
+        wsRef.current.onmessage = null
+        wsRef.current.onopen = null
+        wsRef.current.close()
       } catch {
-        setConnected(false)
-        setConfigOpen(true)
-        return
+        /* ignore */
       }
-      wsRef.current = ws
+      wsRef.current = null
+      intentionalCloseRef.current = false
+    }
 
-      ws.onopen = () => {
-        setConnected(true)
-        reconnectRef.current = 0
-        setLastHeartbeatMs(Date.now())
-        setEvents((e) => pushEvent(e, `WebSocket connected → ${base}`, 'OK'))
-        void refreshRest(base)
-      }
+    const wsUrl = toWsUrl(base)
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(wsUrl)
+    } catch {
+      setConnected(false)
+      setConfigOpen(true)
+      return
+    }
+    wsRef.current = ws
+    backendUrlRef.current = base
 
-      ws.onclose = () => {
-        setConnected(false)
-        const delay = Math.min(10000, 1000 * 2 ** reconnectRef.current)
-        reconnectRef.current += 1
-        if (timerRef.current) clearTimeout(timerRef.current)
-        timerRef.current = setTimeout(() => connectWs(base), delay)
-      }
+    ws.onopen = () => {
+      if (wsRef.current !== ws) return
+      setConnected(true)
+      reconnectRef.current = 0
+      setLastHeartbeatMs(Date.now())
+      setEvents((e) => pushEvent(e, `WebSocket connected → ${base}`, 'OK'))
+      void refreshRestRef.current(base)
+    }
 
-      ws.onerror = () => {
-        setConnected(false)
-      }
+    ws.onclose = () => {
+      if (wsRef.current !== ws) return
+      wsRef.current = null
+      setConnected(false)
+      if (intentionalCloseRef.current) return
+      if (backendUrlRef.current !== base) return
 
-      ws.onmessage = (ev) => {
-        setLastHeartbeatMs(Date.now())
-        try {
-          const msg = JSON.parse(ev.data)
-          const type = msg.type as string
+      const delay = Math.min(10000, 1000 * 2 ** reconnectRef.current)
+      reconnectRef.current += 1
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => {
+        if (backendUrlRef.current === base) connectWs(base)
+      }, delay)
+    }
 
-          if (type === 'telemetry') {
-            if (msg.hardware) setHardware(msg.hardware)
-            if (msg.account) setAccount(msg.account)
-            else if (msg.mt5?.account) {
-              const raw = msg.mt5.account
-              setAccount({
-                balance: raw.balance ?? 0,
-                equity: raw.equity ?? 0,
-                margin_free: raw.margin_free ?? 0,
-                floating_pnl: raw.profit ?? 0,
-                currency: raw.currency ?? 'USD',
-                login: raw.login ?? 0,
-                server: raw.server ?? '',
-                connected: !!msg.mt5.connected,
-                active_positions: msg.mt5.open_positions || [],
-                active_positions_count: msg.mt5.open_positions_count || 0,
-              })
-            }
-            if (msg.active_kill_zones) {
-              setKillZones((prev) => {
-                const next = { ...prev }
-                for (const [sym, zones] of Object.entries(msg.active_kill_zones as Record<string, unknown[]>)) {
-                  const existing = next[sym] || { current_price: null, current_spread: null, bounds: [], zones: [] }
-                  next[sym] = {
-                    ...existing,
-                    zones: zones as KillZoneSymbol['zones'],
-                    bounds: (zones as KillZoneSymbol['zones']).map((z) => ({
-                      lower: z.lower_bound,
-                      upper: z.upper_bound,
-                      direction: z.direction,
-                    })),
-                  }
-                }
-                return next
-              })
-            }
-          } else if (type === 'tick' && msg.data) {
-            const d = msg.data
-            if (d.symbol && d.bid != null) {
-              setPrices((p) => ({ ...p, [d.symbol]: d.bid }))
-            }
-          } else if (type === 'kill_zone' && msg.data) {
-            const d = msg.data
-            setEvents((e) =>
-              pushEvent(e, `Kill Zone ${d.symbol} ${d.direction} conf=${Number(d.confidence || 0).toFixed(2)}`, 'INFO'),
-            )
-            void refreshRest(base)
-          } else if (type === 'trigger_alert' && msg.data) {
-            const d = msg.data
-            setEvents((e) => pushEvent(e, `Sniper trigger ${d.symbol}: ${d.pattern || d.reason || 'setup'}`, 'WARN'))
-          } else if (type === 'trade_ticket' && msg.data) {
-            const d = msg.data
-            setEvents((e) => pushEvent(e, `Trade ticket ${d.symbol} ${d.direction} lot=${d.lot ?? 0.01}`, 'OK'))
-          } else if (type === 'execution' && msg.data) {
-            const d = msg.data
-            setEvents((e) =>
-              pushEvent(
-                e,
-                `Execution ${d.symbol} [${d.status}] PnL=${Number(d.pnl || 0).toFixed(2)}`,
-                d.status === 'CLOSED' ? 'OK' : 'INFO',
-              ),
-            )
-            void refreshRest(base)
-          } else if (type === 'system_state' && msg.data) {
-            setStatus((s) => ({
-              ...(s || { status: 'ok', system_state: 'NORMAL' }),
-              system_state: msg.data.state || msg.data.system_state || s?.system_state || 'NORMAL',
-            }))
-            setEvents((e) => pushEvent(e, `System state → ${msg.data.state || JSON.stringify(msg.data)}`, 'WARN'))
+    ws.onerror = () => {
+      // onclose will handle reconnect; keep badge stable until close
+    }
+
+    ws.onmessage = (ev) => {
+      if (wsRef.current !== ws) return
+      setLastHeartbeatMs(Date.now())
+      try {
+        const msg = JSON.parse(ev.data)
+        const type = msg.type as string
+
+        if (type === 'telemetry') {
+          if (msg.hardware) setHardware(msg.hardware)
+          if (msg.account) setAccount(msg.account)
+          else if (msg.mt5?.account) {
+            const raw = msg.mt5.account
+            setAccount({
+              balance: raw.balance ?? 0,
+              equity: raw.equity ?? 0,
+              margin_free: raw.margin_free ?? 0,
+              floating_pnl: raw.profit ?? 0,
+              currency: raw.currency ?? 'USD',
+              login: raw.login ?? 0,
+              server: raw.server ?? '',
+              connected: !!msg.mt5.connected,
+              active_positions: msg.mt5.open_positions || [],
+              active_positions_count: msg.mt5.open_positions_count || 0,
+            })
           }
-        } catch {
-          /* ignore malformed */
+          if (msg.active_kill_zones) {
+            setKillZones((prev) => {
+              const next = { ...prev }
+              for (const [sym, zones] of Object.entries(msg.active_kill_zones as Record<string, unknown[]>)) {
+                const existing = next[sym] || { current_price: null, current_spread: null, bounds: [], zones: [] }
+                next[sym] = {
+                  ...existing,
+                  zones: zones as KillZoneSymbol['zones'],
+                  bounds: (zones as KillZoneSymbol['zones']).map((z) => ({
+                    lower: z.lower_bound,
+                    upper: z.upper_bound,
+                    direction: z.direction,
+                  })),
+                }
+              }
+              return next
+            })
+          }
+        } else if (type === 'tick' && msg.data) {
+          const d = msg.data
+          if (d.symbol && d.bid != null) {
+            setPrices((p) => ({ ...p, [d.symbol]: d.bid }))
+          }
+        } else if (type === 'kill_zone' && msg.data) {
+          const d = msg.data
+          setEvents((e) =>
+            pushEvent(e, `Kill Zone ${d.symbol} ${d.direction} conf=${Number(d.confidence || 0).toFixed(2)}`, 'INFO'),
+          )
+          void refreshRestRef.current(base)
+        } else if (type === 'trigger_alert' && msg.data) {
+          const d = msg.data
+          setEvents((e) => pushEvent(e, `Sniper trigger ${d.symbol}: ${d.pattern || d.reason || 'setup'}`, 'WARN'))
+        } else if (type === 'trade_ticket' && msg.data) {
+          const d = msg.data
+          setEvents((e) => pushEvent(e, `Trade ticket ${d.symbol} ${d.direction} lot=${d.lot ?? 0.01}`, 'OK'))
+        } else if (type === 'execution' && msg.data) {
+          const d = msg.data
+          setEvents((e) =>
+            pushEvent(
+              e,
+              `Execution ${d.symbol} [${d.status}] PnL=${Number(d.pnl || 0).toFixed(2)}`,
+              d.status === 'CLOSED' ? 'OK' : 'INFO',
+            ),
+          )
+          void refreshRestRef.current(base)
+        } else if (type === 'system_state' && msg.data) {
+          setStatus((s) => ({
+            ...(s || { status: 'ok', system_state: 'NORMAL' }),
+            system_state: msg.data.state || msg.data.system_state || s?.system_state || 'NORMAL',
+          }))
+          setEvents((e) => pushEvent(e, `System state → ${msg.data.state || JSON.stringify(msg.data)}`, 'WARN'))
         }
+      } catch {
+        /* ignore malformed */
       }
-    },
-    [refreshRest],
-  )
+    }
+  }, [])
 
   useEffect(() => {
+    // Single-user: always auto-pick backend (same origin / localhost:8000). No modal.
     const initial = resolveBackendUrl()
-    setBackendUrlState(initial || getStoredBackendUrl())
-    if (!initial) setConfigOpen(true)
+    setBackendUrlState(initial)
     const clockTimer = setInterval(() => setClock(formatClock()), 1000)
     return () => clearInterval(clockTimer)
   }, [])
 
   useEffect(() => {
     if (!backendUrl) return
+    backendUrlRef.current = backendUrl
     connectWs(backendUrl)
-    const poll = setInterval(() => void refreshRest(backendUrl), 15000)
+    const poll = setInterval(() => void refreshRestRef.current(backendUrl), 15000)
     return () => {
       clearInterval(poll)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      wsRef.current?.close()
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      intentionalCloseRef.current = true
+      if (wsRef.current) {
+        try {
+          wsRef.current.onclose = null
+          wsRef.current.close()
+        } catch {
+          /* ignore */
+        }
+        wsRef.current = null
+      }
+      intentionalCloseRef.current = false
+      setConnected(false)
     }
-  }, [backendUrl, connectWs, refreshRest])
+  }, [backendUrl, connectWs])
 
-  // Keepalive ping
+  // Keepalive ping (ngrok / proxies drop idle sockets)
   useEffect(() => {
     const ping = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ action: 'ping' }))
+        try {
+          wsRef.current.send(JSON.stringify({ action: 'ping' }))
+        } catch {
+          /* ignore */
+        }
       }
-    }, 15000)
+    }, 10000)
     return () => clearInterval(ping)
   }, [])
 

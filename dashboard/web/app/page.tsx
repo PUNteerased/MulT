@@ -17,7 +17,6 @@ import {
   Network,
   RefreshCw,
   Server,
-  Settings,
   ShieldCheck,
   Terminal,
   Wallet,
@@ -54,12 +53,10 @@ function Header({
   title,
   clock,
   connected,
-  onOpenConfig,
 }: {
   title: string
   clock: string
   connected: boolean
-  onOpenConfig: () => void
 }) {
   return (
     <header className="topbar">
@@ -72,87 +69,12 @@ function Header({
           <i /> {connected ? 'LIVE SYNC' : 'OFFLINE'}
         </span>
         <span className="muted mono">{clock}</span>
-        <button className="icon-button" aria-label="Backend settings" onClick={onOpenConfig}>
-          <Settings />
-        </button>
         <button className="icon-button" aria-label="Notifications">
           <Bell />
         </button>
         <div className="avatar">DS</div>
       </div>
     </header>
-  )
-}
-
-function BackendModal({
-  open,
-  backendUrl,
-  onClose,
-  onSave,
-}: {
-  open: boolean
-  backendUrl: string
-  onClose: () => void
-  onSave: (url: string) => void
-}) {
-  const [value, setValue] = useState(backendUrl)
-  useEffect(() => {
-    if (open) setValue(backendUrl)
-  }, [open, backendUrl])
-  if (!open) return null
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 50,
-        display: 'grid',
-        placeItems: 'center',
-        background: 'rgba(5,8,16,.78)',
-        backdropFilter: 'blur(8px)',
-        padding: 16,
-      }}
-    >
-      <div className="panel" style={{ maxWidth: 420, width: '100%' }}>
-        <div className="panel-title">
-          <div>
-            <p className="eyebrow">REMOTE BRIDGE</p>
-            <h2>Backend / Tunnel URL</h2>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </div>
-        <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
-          ใส่ URL จาก <code className="mono">python run_dashboard.py --tunnel</code> หรือ LAN เช่น{' '}
-          <code className="mono">http://192.168.x.x:8000</code>
-        </p>
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="https://xxxx.ngrok-free.app"
-          className="mono"
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: 6,
-            border: '1px solid var(--border)',
-            background: '#0b1220',
-            color: '#e2e8f0',
-            marginBottom: 14,
-          }}
-        />
-        <button
-          className="primary-button"
-          onClick={() => {
-            onSave(value.trim())
-            onClose()
-          }}
-        >
-          Save & Connect
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -300,7 +222,7 @@ function Overview({ live }: { live: LiveDashboardApi }) {
 
   return (
     <>
-      <Header title="Command overview" clock={live.clock} connected={live.connected} onOpenConfig={() => live.setConfigOpen(true)} />
+      <Header title="Command overview" clock={live.clock} connected={live.connected} />
       {live.status?.red_folder?.is_active && (
         <div className="panel" style={{ borderColor: 'rgba(251,113,133,.45)', marginBottom: 15, color: '#fda4af' }}>
           RED FOLDER HALT — {live.status.red_folder.title || 'High-impact news window'}
@@ -399,7 +321,7 @@ function Hardware({ live }: { live: LiveDashboardApi }) {
 
   return (
     <>
-      <Header title="Computer telemetry" clock={live.clock} connected={live.connected} onOpenConfig={() => live.setConfigOpen(true)} />
+      <Header title="Computer telemetry" clock={live.clock} connected={live.connected} />
       <div className="hardware-head">
         <div>
           <p className="subheading">
@@ -533,7 +455,7 @@ function Portfolio({ live }: { live: LiveDashboardApi }) {
 
   return (
     <>
-      <Header title="Portfolio & risk" clock={live.clock} connected={live.connected} onOpenConfig={() => live.setConfigOpen(true)} />
+      <Header title="Portfolio & risk" clock={live.clock} connected={live.connected} />
       <section className="portfolio-hero">
         <div>
           <p className="eyebrow">
@@ -730,7 +652,7 @@ function Mult({ live }: { live: LiveDashboardApi }) {
 
   return (
     <>
-      <Header title="MulT system engine" clock={live.clock} connected={live.connected} onOpenConfig={() => live.setConfigOpen(true)} />
+      <Header title="MulT system engine" clock={live.clock} connected={live.connected} />
       <section className="mult-summary">
         <div>
           <p className="eyebrow">DECISION ENGINE</p>
@@ -980,11 +902,8 @@ export default function Page() {
             <span className="live">
               <i /> {live.connected ? 'Connected' : 'Offline'}
             </span>
-            <small>v1.0.0</small>
+            <small>v1.0.0 · auto backend</small>
           </div>
-          <button className="sidebar-link" onClick={() => live.setConfigOpen(true)}>
-            <Settings /> Backend bridge
-          </button>
           <button className="sidebar-link">
             <AlertTriangle /> System alerts <b>{live.status?.red_folder?.is_active ? 1 : 0}</b>
           </button>
@@ -1001,12 +920,6 @@ export default function Page() {
         </div>
         {view}
       </div>
-      <BackendModal
-        open={live.configOpen}
-        backendUrl={live.backendUrl}
-        onClose={() => live.setConfigOpen(false)}
-        onSave={(url) => live.setBackendUrl(url)}
-      />
     </main>
   )
 }

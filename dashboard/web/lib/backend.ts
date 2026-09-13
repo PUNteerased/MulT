@@ -7,25 +7,49 @@ export function getStoredBackendUrl(): string {
 
 export function setStoredBackendUrl(url: string) {
   if (typeof window === 'undefined') return
+  if (!url) {
+    localStorage.removeItem(STORAGE_KEY)
+    return
+  }
   localStorage.setItem(STORAGE_KEY, url.replace(/\/$/, ''))
 }
 
-export function resolveBackendUrl(explicit?: string): string {
-  const stored = explicit ?? getStoredBackendUrl()
-  if (stored) return stored.replace(/\/$/, '')
+function isBrowserLocalHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+}
 
-  // Local Next.js / FastAPI same host fallback
+/**
+ * Single-user auto backend:
+ * 1) same origin (FastAPI / ngrok serving this UI)
+ * 2) localhost:8000 when UI is on Next :3000
+ * 3) optional NEXT_PUBLIC_BACKEND_URL
+ * 4) last stored override (advanced only)
+ */
+export function resolveBackendUrl(explicit?: string): string {
+  if (explicit) return explicit.replace(/\/$/, '')
+
   if (typeof window !== 'undefined') {
-    const host = window.location.hostname
-    if (host === 'localhost' || host === '127.0.0.1') {
-      return 'http://127.0.0.1:8000'
+    const { hostname, origin, port } = window.location
+
+    // UI served by FastAPI / ngrok / LAN → same origin (no manual URL)
+    if (!hostname.includes('vercel.app')) {
+      // Next.js dev on :3000 → API on :8000
+      if (isBrowserLocalHost(hostname) && (port === '3000' || port === '3001')) {
+        return 'http://127.0.0.1:8000'
+      }
+      return origin.replace(/\/$/, '')
     }
   }
-  return process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || ''
+
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || ''
+  if (envUrl) return envUrl
+
+  // Do not force stored URL for normal single-user flow
+  return typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : ''
 }
 
 export function toWsUrl(backendUrl: string): string {
-  const base = backendUrl || 'http://127.0.0.1:8000'
+  const base = backendUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8000')
   const proto = base.startsWith('https') ? 'wss:' : 'ws:'
   const host = base.replace(/^https?:\/\//, '').replace(/\/$/, '')
   return `${proto}//${host}/ws`
